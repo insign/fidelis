@@ -79,11 +79,11 @@ fidelis-claude-code status <session-id>
 fidelis-claude-code uninstall
 ```
 
-Or load the package directory as a plugin with `claude --plugin-dir <path>`. Audits use your existing Claude authentication through a nested `claude -p`, isolated from hooks, tools, settings and project instructions. By default each finished turn adds Haiku calls to your usage and can hold the `Stop` for up to a minute.
+Or load the package directory as a plugin with `claude --plugin-dir <path>`. Audits use your existing Claude authentication through a nested `claude -p`, isolated from hooks, tools, settings and project instructions. By default each finished turn adds Haiku calls to your usage. The `Stop` usually waits under a minute, and at most `auditDeadlineMs`.
 
 ## Configuration
 
-Pass options through the OpenCode plugin entry, or put them in `~/.claude/fidelis.json` and `<project>/.claude/fidelis.json` on Claude Code.
+Pass options through the OpenCode plugin entry, or put them in `~/.claude/fidelis.json` on Claude Code. A `<project>/.claude/fidelis.json` is read only when the user file sets `trustProjectConfig: true`, because the audited agent can write project files.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
@@ -102,7 +102,8 @@ Pass options through the OpenCode plugin entry, or put them in `~/.claude/fideli
 | `storeRawTranscript` | `false` | Keep unclipped evidence in the local ledger |
 | `allowFreeModelDataUse` | `false` | Consent for default models that may train on submitted data |
 | `trustSdkPrompts` | `false` | Let SDK prompts release a wait. For fully headless use only |
-| `timeoutMs`, `retries` | `240000`, `2` | Per-call limits with backoff |
+| `timeoutMs`, `retries` | `240000`, `1` | Per-call limits with backoff |
+| `auditDeadlineMs` | `600000` | Limit for a whole audit. Keep it below the host's hook timeout |
 | `retentionDays` | `30` | Local state retention |
 | `ui` | see below | OpenCode TUI only. Never affects auditing |
 
@@ -119,6 +120,7 @@ State lives in `$FIDELIS_HOME`, or the OS cache directory (`~/.cache/fidelis`, `
 - **Free tier on OpenCode:** when `Free usage limit reached` appears, the audit reports `AUDIT_INCOMPLETE`. The compiler call also carries OpenCode's normal system context, because the free tier refused requests without it. Configure your own models to avoid both.
 - **OpenCode origin:** the host does not mark human prompts. Fidelis treats unmarked `user` records as human and excludes its own marked prompts and `synthetic` records, so an unmarked prompt from another plugin would count as a human reply.
 - **Rule interpretation is model output.** Thresholds and evidence checks bound the damage, but a judge can still misread a rule. An overall accuracy figure would need labeled ground truth, which does not exist yet.
+- **Windows on Claude Code:** an npm-installed `claude.cmd` cannot be spawned directly. Set `FIDELIS_CLAUDE_BIN` to a `claude.exe`. Windows has not been tested against a real host.
 - **Claude Code `-p` prompts** are not proof of a human, so they never release `WAITING_USER` unless `trustSdkPrompts` is on.
 - Host records used for instruction discovery (`core/instructions` on OpenCode, the `instructions` transcript attachment on Claude Code) are not stable public contracts. On Claude Code a documented file-based fallback applies; on OpenCode a missing record yields no audit of that source.
 

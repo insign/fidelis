@@ -239,11 +239,13 @@ export function claudeGenerate(model: string, effort: string, config: Pick<Confi
       let stderr = ""
       child.stdout.on("data", (chunk) => (stdout += chunk))
       child.stderr.on("data", (chunk) => (stderr += chunk))
-      child.on("error", fail)
+      child.on("error", (error: NodeJS.ErrnoException) => fail(error.code === "ENOENT" ? new Error(`${command} was not found. On Windows, an npm .cmd install cannot be spawned directly: set FIDELIS_CLAUDE_BIN to claude.exe.`) : error))
+      // A child that exits before reading the prompt raises EPIPE here; "close" reports the real failure.
+      child.stdin.on("error", () => {})
       child.on("close", (code) => {
         try {
           const result = JSON.parse(stdout)
-          if (result.is_error) return fail(new Error(String(result.result ?? "claude reported an error").slice(0, 300)))
+          if (result.is_error) return fail(Object.assign(new Error(String(result.result ?? "claude reported an error").slice(0, 300)), { costUSD: result.total_cost_usd }))
           const usage = result.usage ?? {}
           done({
             text: result.structured_output ? JSON.stringify(result.structured_output) : String(result.result),

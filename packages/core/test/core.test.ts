@@ -594,6 +594,45 @@ test("a cached checklist with rejected rules is not reused", async () => {
   assert.equal(result.cacheHit, false)
 })
 
+test("a rule mentioning a credential survives redaction and caches", async () => {
+  const source = { ...SOURCE, text: "Never commit secrets: always use env vars." }
+  const s = store()
+  let calls = 0
+  const generate = async () => (calls++, JSON.stringify({ confidence: 0.9, rules: [{ ...RAW_RULE, quote: redact(source.text) }] }))
+  const first = await getChecklist({ store: s, host: "opencode", sources: [source], config: config(), generate })
+  assert.deepEqual(first.checklist?.dropped, [])
+  assert.equal(first.checklist?.rules[0].source, source.path)
+  await getChecklist({ store: s, host: "opencode", sources: [source], config: config(), generate })
+  assert.equal(calls, 1)
+})
+
+test("any failure after the audit begins ends as a recorded AUDIT_INCOMPLETE", async () => {
+  const s = store()
+  const outcome = await auditor(s, scripted(CLEAN).model, { compilerPromptPath: join(tempDir(), "missing.md") }).a.complete("s", completion())
+  assert.equal(outcome.state, "AUDIT_INCOMPLETE")
+  assert.ok((outcome as any).reason.includes("Audit failed"))
+  assert.equal(s.read("s").audit, undefined)
+  assert.equal(s.audits("s").length, 1)
+})
+
+test("the whole-audit deadline stops retries and slow calls", async () => {
+  await assert.rejects(withRetry(() => new Promise(() => {}), { retries: 5, timeoutMs: 100_000, deadlineAt: Date.now() + 20, baseDelayMs: 1 }), /timed out after|time limit/)
+  const s = store()
+  let calls = 0
+  const model = { id: "x", confidenceKind: "decision" as const, ask: () => (calls++, new Promise<any>(() => {})) }
+  const outcome = await auditor(s, model, { auditDeadlineMs: 30, retries: 3 }).a.complete("s", completion())
+  assert.equal(outcome.state, "AUDIT_INCOMPLETE")
+  assert.ok(calls <= 2)
+})
+
+test("a billed attempt that fails still counts against the budget", async () => {
+  const s = store()
+  const failing = textDecisions(async () => ({ text: "not json", costUSD: 0.4 }), "haiku")
+  const outcome = await auditor(s, failing, { retries: 1, maxAuditCostUSD: 100 }).a.complete("s", completion())
+  assert.equal(outcome.state, "AUDIT_INCOMPLETE")
+  assert.equal(Math.round(s.read("s").spentUSD * 10) / 10, 0.8)
+})
+
 test("cleanup enforces retention", () => {
   const s = store()
   s.update("old", (state) => void (state.turn = 1))

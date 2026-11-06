@@ -22,7 +22,8 @@ const BASE = {
   allowFreeModelDataUse: false,
   trustSdkPrompts: false,
   timeoutMs: 240_000,
-  retries: 2,
+  retries: 1,
+  auditDeadlineMs: 600_000,
   retentionDays: 30,
 }
 

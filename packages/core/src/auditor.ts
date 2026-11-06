@@ -198,66 +198,72 @@ export class Auditor {
       return state ? { action: "none", state, reason, notice: `Fidelis audit incomplete: ${reason}` } : stale()
     }
 
-    if (config.maxAuditCostUSD !== null && begin.spentUSD >= config.maxAuditCostUSD) {
-      const reason = `Audit budget of $${config.maxAuditCostUSD} is exhausted.`
-      const state = finish("stop", reason, [])
-      return state ? { action: "none", state, reason, notice: `Fidelis stopped: ${reason}` } : stale()
-    }
-
-    if (!input.sources) return incomplete("The host did not reveal which instructions it loaded.")
-    const sources = resolveSources(input.sources)
-    if (sources.length === 0) {
-      const reason = "No effective instructions to audit."
-      const state = finish("clean", reason, [])
-      return state ? { action: "none", state, reason } : stale()
-    }
-    const options = this.o.options ?? {}
-    const compileConsent = consentProblem(config.compilerModel, options, config)
-    const compiled = await getChecklist({
-      store,
-      host: this.o.host,
-      sources,
-      config,
-      generate: compileConsent ? null : this.o.compiler,
-      onCompile: () => this.save(sessionID, (state) => void (state.phase = "compiling"), "compiling"),
-    })
-    metrics.cacheHit = compiled.cacheHit
-    metrics.compilerCalls = compiled.calls
-    metrics.tokens = compiled.tokens
-    metrics.costUSD = compiled.costUSD
-    charge(compiled.costUSD)
-    if (!compiled.checklist) return incomplete(compileConsent && !compiled.cacheHit ? compileConsent : (compiled.reason ?? "Checklist unavailable."))
-    this.save(sessionID, (state) => void (state.phase = "judging"), "judging")
-
-    const judgeConsent = consentProblem(config.judgeModel, options, config)
-    if (judgeConsent) return incomplete(judgeConsent)
-    if (!this.o.judge) return incomplete("No decision model is available.")
-
-    let verdict
+    // Past this point the session is AUDITING, so any failure must still end in a recorded outcome.
+    const bounded = { ...config, deadlineAt: started + config.auditDeadlineMs, onFailedCost: (costUSD: number) => { metrics.costUSD += costUSD; charge(costUSD) } }
     try {
-      verdict = await judge({
-        checklist: compiled.checklist,
-        evidence: input.evidence,
-        prior: begin.findings.filter((finding) => finding.status === "VIOLATED"),
-        model: this.o.judge,
-        config,
-        stopReason: () => {
-          const current = store.read(sessionID)
-          if (current.audit?.id !== auditID) return "the audit was superseded by a newer turn"
-          return config.maxAuditCostUSD !== null && current.spentUSD >= config.maxAuditCostUSD ? "the audit budget is exhausted" : null
-        },
-        onUsage: (tokens, costUSD) => {
-          metrics.tokens += tokens
-          metrics.costUSD += costUSD
-          charge(costUSD)
-        },
-      })
-    } catch (error) {
-      return incomplete(`Judge failed: ${(error as Error).message}`)
-    }
-    metrics.judgeCalls = verdict.calls
+      if (config.maxAuditCostUSD !== null && begin.spentUSD >= config.maxAuditCostUSD) {
+        const reason = `Audit budget of $${config.maxAuditCostUSD} is exhausted.`
+        const state = finish("stop", reason, [])
+        return state ? { action: "none", state, reason, notice: `Fidelis stopped: ${reason}` } : stale()
+      }
 
-    return this.route(verdict.findings, verdict.waiting, compiled.checklist.dropped.length, begin, auditID, finish, stale, incomplete)
+      if (!input.sources) return incomplete("The host did not reveal which instructions it loaded.")
+      const sources = resolveSources(input.sources)
+      if (sources.length === 0) {
+        const reason = "No effective instructions to audit."
+        const state = finish("clean", reason, [])
+        return state ? { action: "none", state, reason } : stale()
+      }
+      const options = this.o.options ?? {}
+      const compileConsent = consentProblem(config.compilerModel, options, config)
+      const compiled = await getChecklist({
+        store,
+        host: this.o.host,
+        sources,
+        config: bounded,
+        generate: compileConsent ? null : this.o.compiler,
+        onCompile: () => this.save(sessionID, (state) => void (state.phase = "compiling"), "compiling"),
+      })
+      metrics.cacheHit = compiled.cacheHit
+      metrics.compilerCalls = compiled.calls
+      metrics.tokens = compiled.tokens
+      metrics.costUSD = compiled.costUSD
+      charge(compiled.costUSD)
+      if (!compiled.checklist) return incomplete(compileConsent && !compiled.cacheHit ? compileConsent : (compiled.reason ?? "Checklist unavailable."))
+      this.save(sessionID, (state) => void (state.phase = "judging"), "judging")
+
+      const judgeConsent = consentProblem(config.judgeModel, options, config)
+      if (judgeConsent) return incomplete(judgeConsent)
+      if (!this.o.judge) return incomplete("No decision model is available.")
+
+      let verdict
+      try {
+        verdict = await judge({
+          checklist: compiled.checklist,
+          evidence: input.evidence,
+          prior: begin.findings.filter((finding) => finding.status === "VIOLATED"),
+          model: this.o.judge,
+          config: bounded,
+          stopReason: () => {
+            const current = store.read(sessionID)
+            if (current.audit?.id !== auditID) return "the audit was superseded by a newer turn"
+            return config.maxAuditCostUSD !== null && current.spentUSD >= config.maxAuditCostUSD ? "the audit budget is exhausted" : null
+          },
+          onUsage: (tokens, costUSD) => {
+            metrics.tokens += tokens
+            metrics.costUSD += costUSD
+            charge(costUSD)
+          },
+        })
+      } catch (error) {
+        return incomplete(`Judge failed: ${(error as Error).message}`)
+      }
+      metrics.judgeCalls = verdict.calls
+
+      return this.route(verdict.findings, verdict.waiting, compiled.checklist.dropped.length, begin, auditID, finish, stale, incomplete)
+    } catch (error) {
+      return incomplete(`Audit failed: ${(error as Error).message}`)
+    }
   }
 
   /** Deterministic routing. Model output only suggests; these branches decide. */

@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
-import { buildEvidence, compareVersions, discoverInstructions, parseTranscript } from "../src/adapter.ts"
-import { outputFor } from "../src/cli.ts"
+import { buildEvidence, claudeGenerate, compareVersions, discoverInstructions, parseTranscript } from "../src/adapter.ts"
+import { outputFor, withoutOwnHook } from "../src/cli.ts"
 
 const prompt = (uuid: string, extra = {}) => ({ type: "user", uuid, timestamp: "2026-11-05T10:00:00Z", message: { role: "user", content: `ask ${uuid}` }, ...extra })
 const human = (uuid: string) => prompt(uuid, { origin: { kind: "human" }, turnOrigin: "human", promptSource: "typed" })
@@ -132,6 +132,21 @@ test("stop output: correction continues, waits and clean turns do not block", ()
   assert.equal(outputFor({ action: "wait", state: "WAITING_USER", auditID: "a", reason: "r" }), null)
   assert.equal(outputFor({ action: "none", state: "APPROVED" }), null)
   assert.deepEqual(outputFor({ action: "none", state: "STOPPED", notice: "n" }), { systemMessage: "n" })
+})
+
+test("install removes only the Fidelis hook, never its neighbors", () => {
+  const own = { type: "command", command: 'node "/usr/lib/node_modules/fidelis-claude-code/dist/cli.js" hook' }
+  const neighbor = { type: "command", command: "/home/fidelis/src/fidelis/notify.sh" }
+  const groups = [{ hooks: [own] }, { hooks: [neighbor, own] }, { hooks: [neighbor] }]
+  assert.deepEqual(withoutOwnHook(groups), [{ hooks: [neighbor] }, { hooks: [neighbor] }])
+})
+
+test("a nested Claude that exits early reports a failure instead of crashing", POSIX_PATHS, async () => {
+  const dir = mkdtempSync(join(tmpdir(), "fidelis-bin-"))
+  const bin = join(dir, "claude")
+  writeFileSync(bin, '#!/bin/sh\necho "bad flag" >&2\nexit 3\n', { mode: 0o755 })
+  await assert.rejects(claudeGenerate("m", "default", { timeoutMs: 5000 }, bin)("x".repeat(2_000_000)), /exited 3/)
+  await assert.rejects(claudeGenerate("m", "default", { timeoutMs: 5000 }, join(dir, "absent"))("x"), /FIDELIS_CLAUDE_BIN/)
 })
 
 test("version compare", () => {

@@ -169,6 +169,8 @@ export interface Config {
   trustSdkPrompts: boolean
   timeoutMs: number
   retries: number
+  /** Whole-audit limit. Must stay below the host's hook timeout. */
+  auditDeadlineMs: number
   retentionDays: number
   ui: { enabled: boolean; footer: boolean; notifications: "important" | "all" | "off"; auditPanel: boolean; plainTextIcons: boolean }
 }

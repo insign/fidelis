@@ -41,10 +41,13 @@ export function toEvents(messages: readonly any[], actor: "agent" | "subagent" =
     if (message.type === "user") events.push({ id: message.id, seq: 0, at, kind: message.metadata?.fidelis ? "fidelis" : "user", text: message.text })
     if (message.type === "shell") events.push({ id: message.id, seq: 0, at, kind: "tool", actor: "agent", name: "user-shell", input: message.command, output: message.output, status: "completed" })
     if (message.type !== "assistant") continue
-    for (const part of message.content ?? []) {
-      if (part.type === "text" && part.text) events.push({ id: `${message.id}:text:${events.length}`, seq: 0, at, kind: "assistant", actor, text: part.text })
-      if (part.type === "tool") events.push({ id: part.id, seq: 0, at: part.time?.created ?? at, kind: "tool", actor, name: part.name, input: part.state?.input, output: toolOutput(part.state), status: STATUS[part.state?.status] ?? "unknown" })
-    }
+    // Parts keep their order: a text part written after a tool cannot sort ahead of it.
+    let last = at
+    ;(message.content ?? []).forEach((part: any, index: number) => {
+      last = Math.max(last ?? 0, part.time?.created ?? 0) || last
+      if (part.type === "text" && part.text) events.push({ id: `${message.id}:text:${index}`, seq: events.length, at: last, kind: "assistant", actor, text: part.text })
+      if (part.type === "tool") events.push({ id: part.id, seq: events.length, at: last, kind: "tool", actor, name: part.name, input: part.state?.input, output: toolOutput(part.state), status: STATUS[part.state?.status] ?? "unknown" })
+    })
   }
   return events
 }

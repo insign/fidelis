@@ -35,6 +35,10 @@ export interface RetryOptions {
   retries: number
   timeoutMs: number
   baseDelayMs?: number
+  /** Whole-audit deadline, so retries cannot outlast the host's hook timeout. */
+  deadlineAt?: number
+  /** A failed attempt can still have been billed. */
+  onFailedCost?: (costUSD: number) => void
 }
 
 const HARD_FAILURE = /\b(401|403|404)\b|unauthori[sz]ed|forbidden|not found|consent|usage limit/i
@@ -44,14 +48,19 @@ export async function withRetry<T>(run: () => Promise<T>, options: RetryOptions)
   let lastError: unknown
   for (let attempt = 0; attempt <= options.retries; attempt++) {
     if (attempt > 0) await new Promise((done) => setTimeout(done, (options.baseDelayMs ?? 1000) * 2 ** (attempt - 1)))
+    const left = (options.deadlineAt ?? Infinity) - Date.now()
+    if (left <= 0) throw lastError ?? new Error("the audit time limit was reached")
+    const limit = Math.min(options.timeoutMs, left)
     let timer: NodeJS.Timeout | undefined
     try {
       const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(`timed out after ${options.timeoutMs} ms`)), options.timeoutMs)
+        timer = setTimeout(() => reject(new Error(`timed out after ${limit} ms`)), limit)
       })
       return await Promise.race([run(), timeout])
     } catch (error) {
       lastError = error
+      const cost = (error as { costUSD?: unknown })?.costUSD
+      if (typeof cost === "number" && cost > 0) options.onFailedCost?.(cost)
       if (HARD_FAILURE.test(String((error as Error)?.message ?? error))) break
     } finally {
       clearTimeout(timer)
@@ -154,8 +163,13 @@ export function textDecisions(generate: GenerateText, id: string): DecisionModel
         ),
       ].join("\n")
       const output = generated(await generate(prompt, DECISIONS_SCHEMA))
-      const parsed = parseJson(output.text)
-      if (!parsed || typeof parsed.answers !== "object") throw new Error("decision output lacks answers")
+      let parsed: any
+      try {
+        parsed = parseJson(output.text)
+        if (!parsed || typeof parsed.answers !== "object") throw new Error("decision output lacks answers")
+      } catch (error) {
+        throw Object.assign(error as Error, { costUSD: output.costUSD })
+      }
       const answers: Record<string, Answer> = {}
       for (const question of questions) {
         const answer = parsed.answers[question.name]

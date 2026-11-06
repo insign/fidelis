@@ -60,6 +60,16 @@ test("evidence is cumulative across a correction and excludes reasoning", () => 
   assert.equal(events[1].output, "out")
 })
 
+test("text IDs survive compaction and parts keep their order", () => {
+  const message = { ...assistant("m", "stop", [{ ...tool("t"), time: { created: 50 } }, reply("done")]), time: { created: 10 } }
+  const before = toEvents([user("u"), assistant("a", "stop", [reply("x")]), message])
+  const after = toEvents([message])
+  assert.equal(before.at(-1)!.id, after.at(-1)!.id)
+  assert.deepEqual(after.map((event) => event.kind), ["tool", "assistant"])
+  assert.ok(after[1].at! >= after[0].at!)
+  assert.ok(after[1].seq > after[0].seq)
+})
+
 test("failed tools and child sessions keep attribution", () => {
   const failing = toEvents([assistant("a", "stop", [{ ...tool("t", "error"), state: { status: "error", input: {}, error: { message: "boom" } } }])])
   assert.equal(failing[0].status, "failed")

@@ -62,7 +62,8 @@ export function validateRules(raw: any, sources: InstructionSource[]): { rules: 
     if (!valid) return void dropped.push(`${label}: invalid shape`)
     // The verbatim quote is the traceability anchor. Models often shorten a path, so it may correct the source.
     const key = normalize(item.quote)
-    const holds = (candidate: InstructionSource) => normalize(candidate.text).includes(key)
+    // The compiler reads redacted text, so a rule that mentions a credential comes back with [REDACTED] in its quote.
+    const holds = (candidate: InstructionSource) => normalize(candidate.text).includes(key) || normalize(redact(candidate.text)).includes(key)
     const source = sources.find((candidate) => candidate.path === item.source && holds(candidate)) ?? sources.find(holds)
     if (!source || !key) return void dropped.push(`${label}: quote not verbatim`)
     const existing = byQuote.get(key)

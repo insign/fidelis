@@ -17,7 +17,8 @@ function loadOptions(cwd: string, env = process.env) {
     }
   }
   const user = read(join(env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "fidelis.json"))
-  const project = read(join(cwd, ".claude", "fidelis.json"))
+  // The audited agent can write project files, so it must not be able to switch off its own auditor.
+  const project = user.trustProjectConfig === true ? read(join(cwd, ".claude", "fidelis.json")) : {}
   return { ...user, ...project, ...(env.FIDELIS_CONFIG ? read(env.FIDELIS_CONFIG) : {}) }
 }
 
@@ -88,13 +89,24 @@ function settingsPath(project: boolean) {
   return project ? join(process.cwd(), ".claude", "settings.json") : join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json")
 }
 
+const OWN_HOOK = /[\\/](?:fidelis-claude-code|claude-code)[\\/]dist[\\/]cli\.js" hook$/
+
+/** Removes only the Fidelis hook, never a neighbor in the same group. */
+export function withoutOwnHook(groups: any[]): any[] {
+  return groups.flatMap((group) => {
+    const hooks = group.hooks ?? []
+    const kept = hooks.filter((hook: any) => !OWN_HOOK.test(hook.command ?? ""))
+    return kept.length === hooks.length ? [group] : kept.length ? [{ ...group, hooks: kept }] : []
+  })
+}
+
 function install(remove: boolean, project: boolean) {
   const path = settingsPath(project)
   const settings = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {}
   const command = `node "${realpathSync(fileURLToPath(import.meta.url))}" hook`
   settings.hooks ??= {}
   for (const [event, timeout] of Object.entries(HOOK_EVENTS)) {
-    const kept = (settings.hooks[event] ?? []).filter((entry: any) => !(entry.hooks ?? []).some((hook: any) => /fidelis/i.test(hook.command ?? "")))
+    const kept = withoutOwnHook(settings.hooks[event] ?? [])
     settings.hooks[event] = remove ? kept : [...kept, { hooks: [{ type: "command", command, timeout }] }]
     if (settings.hooks[event].length === 0) delete settings.hooks[event]
   }
