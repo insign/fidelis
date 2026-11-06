@@ -2,7 +2,7 @@
 
 **Status:** specification, not implemented. **Repository:** `insign/fidelis`. **License:** MIT.
 
-This is the authoritative implementation brief for the first release. Implement only the functionality and files needed for the milestones, preserve the repository's existing license, and validate real host APIs against their current documentation and an installed host before calling an integration complete.
+This is the authoritative implementation brief for the first release. Implement only the functionality and files needed for the milestones, preserve the repository's existing license, and validate real host APIs against their current documentation and an installed host before calling an integration complete. Fidelis' public description is: **Harness-agnostic AI agent auditor that verifies compliance with AGENTS.md, detects behavioral violations, and drives autonomous corrections.**
 
 ## 1. Problem and product boundaries
 
@@ -49,7 +49,7 @@ These are **proposed interfaces**, not claims about method names in an SDK.
 
 ## 3. Instruction discovery, resolution and cache
 
-Gather **all applicable instructions**, not just two hardcoded files. Support root/global and project-level `AGENTS.md`; in Claude Code also resolve `CLAUDE.md`, applicable `.claude/rules/` content and lazily loaded/scoped instructions where observable. The effective set depends on current project, working directory, file scope, configured instruction precedence and active host. Record original path, hash, priority, scope, and exact text for each source.
+Gather **all applicable instructions**, not just two hardcoded files. Support root/global and project-level `AGENTS.md`; in Claude Code also resolve `CLAUDE.md`, applicable `.claude/rules/` content and lazily loaded/scoped instructions where observable. Recent Claude Code versions can load `AGENTS.md` natively: its default prefers `CLAUDE.md` when present but uses `AGENTS.md` otherwise, with a setting to load both. Discover what the harness **actually loaded**, including relevant versions/options and import behavior; do not double-count or audit instructions the host excluded. The effective set depends on current project, working directory, file scope, configured instruction precedence and active host. Record original path, hash, priority, scope, and exact text for each source.
 
 Never assume that two files can be flattened by concatenation without understanding overrides. Resolve explicit precedence and conflicts. A user instruction can narrow the current task but does not retroactively change historical facts. Unresolved conflicting mandatory rules are marked `UNKNOWN` and surfaced, not arbitrarily chosen.
 
@@ -74,7 +74,7 @@ Sanitize/encode host and session identifiers for paths. Writes must be atomic an
 
 ## 4. Checklist compiler (infrequent model call)
 
-The compiler, initially envisioned as a Gemini Flash-Lite-class model, **translates instructions; it does not judge the agent's execution**. Run it once per effective fingerprint on the first applicable session/turn; prewarming is optional. Persist a structured, schema-validated checklist. On cache hit, do not call the compiler.
+The compiler **translates instructions; it does not judge the agent's execution**. Proposed default on OpenCode v2: **Big Pickle** (`opencode/big-pickle`); proposed default on Claude Code: **Claude Haiku 5.5, xhigh effort**. Use the host's configured/authorized model transport rather than assuming model access. Big Pickle is documented as free **for a limited time** and submitted data may be used for model improvement; this must be disclosed and sensitive content filtered or explicitly authorized before transmission. Support configurable model replacements, provider failures and an explicit no-compiler / incomplete-audit outcome rather than silently switching to a paid model. Run the compiler once per effective fingerprint on the first applicable session/turn; prewarming is optional. Persist a structured, schema-validated checklist. On cache hit, do not call the compiler.
 
 Each item should include:
 
@@ -100,7 +100,7 @@ When a transcript exceeds model context, produce an evidence-preserving digest a
 
 ## 6. Judge / Decisions (per completed turn)
 
-Provide the compiled checklist, current user instruction, normalized evidence, final reply and prior unresolved audit findings to a configurable decision model. Initially target Jev or a model with equivalent typed/batched decisions. The OpenCode v2 experimental decisions API exposes `predicate`, choice and score questions; **do not assume a provider-specific `noul` field is portable**. Claude Code needs an independent provider client/transport and a documented fallback if that model is not available.
+Provide the compiled checklist, current user instruction, normalized evidence, final reply and prior unresolved audit findings to a configurable decision model. On OpenCode v2, prefer **Jev 1.13 Free** where currently available and compatible with the experimental Decisions API; both model availability and its free tier may change. The OpenCode v2 API exposes `predicate`, choice and score questions; **do not assume a provider-specific `noul` field is portable**. Claude Code has no native OpenCode Decisions transport: allow an explicitly configured external Jev client, or a **Claude Haiku 5.5 xhigh** structured-classification fallback with schema validation. Never silently access external providers or imply that Haiku produces native Jev probabilities.
 
 Model outputs are suggestions to a deterministic policy engine, not executable instructions. Per-rule status:
 
@@ -147,7 +147,7 @@ Some historical violations cannot be undone (e.g. an already missed pre-commit r
 
 ### OpenCode v2
 
-- Register via the documented v2 plugin entry point (`Plugin.define({ id, setup(ctx) })`) and `plugins` array in `opencode.json(c)` with `package` and `options`.
+- Register via the documented v2 plugin entry point (`Plugin.define({ id, setup(ctx) })`) and `plugins` array in `opencode.json(c)` with `package` and `options`. Default compiler: `opencode/big-pickle`; default judge: an available `opencode/jev-1.13-free`, with user-configured overrides. Check model availability and authorization explicitly.
 - Use session lifecycle events such as `session.execution.succeeded` as a **candidate** completion boundary; validate that a final assistant turn exists, the top-level execution has completed, and no older/duplicate boundary is being re-audited.
 - Use `ctx.session.context({ sessionID })` and other durable session/tool event data for evidence; preserve causality and check completeness.
 - Use `ctx.experimental.generate.decisions` for typed questions **only when supported by the installed version/model**; compiler may use `ctx.experimental.generate.text` or an external transport.
@@ -161,20 +161,22 @@ Some historical violations cannot be undone (e.g. an already missed pre-commit r
 - Read the transcript JSONL indicated by the hook, with subagent transcripts as available; maintain stable event identities and origin checks.
 - On a confirmed fixable violation at `Stop`, return documented correction feedback (e.g. `hookSpecificOutput.additionalContext` or `decision: "block"` + reason), allowing the agent to continue. The `stop_hook_active` flag and host's consecutive-continuation limit are supplementary safeguards, **not** substitutes for Fidelis state and retry bounds.
 - If no fix is warranted or the agent is waiting for the user, let `Stop` finish normally. Do not block merely to ask the same question again.
-- Use an external compiler and judge client; there is no assumption that OpenCode's experimental Decisions API exists inside Claude Code.
+- For the default compiler, use Claude Haiku 5.5 at `xhigh` effort through a supported authenticated Claude transport. For judging, use an explicitly authorized external Jev endpoint or Haiku xhigh with structured outputs and equivalent deterministic routing; do not assume OpenCode's experimental Decisions API exists inside Claude Code. Isolate hook invocation from nested Claude subprocess sessions to prevent recursion.
 - Verify behavior across restarts, resume, compaction, user interruptions, hooks timing out and Windows/Unix hook launchers.
 
 ## 9. User configuration and prompts
 
-Package default prompts, a compiler model, a judge model, thresholds, budget limits and feedback templates. Allow host-specific overrides without forking the core.
+Package default prompts, a compiler model, a judge model, thresholds, budget limits and feedback templates. Allow host-specific overrides without forking the core. Ship host-specific defaults: OpenCode v2 uses Big Pickle for checklist compilation and Jev for Decisions when available; Claude Code uses Haiku 5.5 at xhigh for checklist compilation and either configured Jev or Haiku xhigh for judging. Avoid imposing paid or transiently free provider use on users without disclosure and an override.
 
 Proposed configuration schema (names to stabilize before implementation):
 
 ```json
 {
   "enabled": true,
-  "compilerModel": "provider/compiler-model",
-  "judgeModel": "provider/decision-model",
+  "compilerModel": "auto",
+  "compilerEffort": "auto",
+  "judgeModel": "auto",
+  "judgeEffort": "auto",
   "compilerPromptPath": null,
   "judgePromptPath": null,
   "auditOnCompletion": true,
@@ -187,7 +189,7 @@ Proposed configuration schema (names to stabilize before implementation):
 }
 ```
 
-These values and field names are **proposals**, not released behavior. Do not hardcode a provider, depend on undocumented free tiers, or assume a judge reports calibrated confidence. Provide clear behavior when a model cannot answer typed questions or when credentials are absent. A provider/model change or compiler-prompt change must invalidate only the relevant cached checklist; judge prompt/model changes affect audit keys, not necessarily the compiled rules.
+These values and field names are **proposals**, not released behavior. In this sketch, `auto` resolves from the host-specific defaults above; `compilerEffort`/`judgeEffort` are ignored or rejected with a clear message where unsupported. Do not hardcode a provider outside host-specific defaults, depend on permanently free tiers, or assume a judge reports calibrated confidence. Provide clear behavior when a model cannot answer typed questions or when credentials are absent. A provider/model change or compiler-prompt change must invalidate only the relevant cached checklist; judge prompt/model changes affect audit keys, not necessarily the compiled rules.
 
 Provider calls must use timeouts, bounded retries/backoff, structured validation, rate-limit handling and human-readable errors. Any prompt overrides must be included in the relevant cache/version fingerprint. Avoid storing tokens in project files.
 
@@ -200,7 +202,7 @@ Each milestone must have tests and an independently reviewable commit. Do not ad
 3. **Judge pipeline:** batched model predicates, result mapping, evidence-based findings, uncertainty policy, deterministic correction routing, replay fixtures.
 4. **OpenCode v2 adapter:** actual plugin loading/config, completion recognition, transcript extraction, correction delivery, human-origin gating and live integration tests.
 5. **Claude Code adapter:** hook installer/config, Stop continuation, transcript replay, user waits, host loop guards and live integration tests.
-6. **Polish/release:** documented configuration and prompts, error reporting, portable file locations, cleanup, reproducible tests, optional package publication only after validation.
+6. **Polish/release:** documented configuration and prompts, error reporting, portable file locations, cleanup, reproducible tests, optional npm package publication only after validation. No pre-registration is required on npm; ensure the eventual publisher owns any chosen npm scope (for example, `@insign`) and use `npm publish --access public` for a public scoped release.
 
 Start by reproducing an OpenCode v2 turn end and a Claude Code `Stop` cycle in small test harnesses. If host behavior differs from this design, update the adapter and tests rather than weakening the shared invariants. Prefer **OpenCode v2 as the first end-to-end integration** while keeping the core harness-neutral.
 
@@ -244,5 +246,9 @@ Re-check these before coding or publishing because integration APIs change:
 - [OpenCode v2 public API, including session and event types](https://opencode.ai/v2/docs/api)
 - [OpenCode v1 -> v2 migration guidance](https://dev.opencode.ai/v2/docs/build/plugins/migrate-v1)
 - [Claude Code hooks, Stop feedback, event schemas, and loop protection](https://code.claude.com/docs/en/hooks)
+- [Claude Code native AGENTS.md instruction loading and precedence](https://code.claude.com/docs/en/memory#agentsmd)
+- [Claude Code model and effort configuration](https://code.claude.com/docs/en/model-config)
+- [OpenCode v2 model catalog, Big Pickle/Jev availability and privacy](https://opencode.ai/v2/docs/console/models/)
+- [npm scoped package publication](https://docs.npmjs.com/creating-and-publishing-scoped-public-packages/)
 
 **Definition of done:** Both supported hosts can audit a finished unit against effective instructions, provide specific evidence-backed findings, request bounded safe corrections, respect real user waits, and persist/recover state. A README, scaffolding, or untested example is not a functional release.
