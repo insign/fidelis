@@ -1,5 +1,5 @@
 import { Plugin } from "@opencode/plugin"
-import { Auditor, FIDELIS_MARKER, opencodeDecisions, resolveConfig, Store, type Finding, type SessionState } from "@insign/fidelis"
+import { Auditor, FIDELIS_MARKER, opencodeDecisions, resolveConfig, Store, type Finding, type SessionState } from "fidelis"
 import { buildEvidence, childSessions, effectiveSources, finalBoundary, generateViaTempSession, messageOrigin, toEvents } from "./adapter.ts"
 import { FidelisRpc } from "./rpc.ts"
 

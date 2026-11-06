@@ -2,7 +2,7 @@ import { spawn } from "node:child_process"
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { basename, dirname, isAbsolute, join, resolve } from "node:path"
-import type { Config, Evidence, ExecEvent, GenerateText, InstructionSource, MessageOrigin } from "@insign/fidelis"
+import type { Config, Evidence, ExecEvent, GenerateText, InstructionSource, MessageOrigin } from "fidelis"
 
 const PROMPT_ORIGINS = new Set<MessageOrigin>(["human", "sdk"])
 

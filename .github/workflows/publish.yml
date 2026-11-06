@@ -5,7 +5,7 @@ on:
     inputs:
       packages:
         description: Workspaces to publish, in dependency order
-        default: '@insign/fidelis @insign/fidelis-claude-code @insign/fidelis-opencode'
+        default: 'fidelis fidelis-claude-code fidelis-opencode'
         required: true
 permissions:
   contents: read
@@ -33,7 +33,7 @@ jobs:
         run: |
           for name in $PACKAGES; do
             case "$name" in
-              @insign/fidelis|@insign/fidelis-claude-code|@insign/fidelis-opencode) ;;
+              fidelis|fidelis-claude-code|fidelis-opencode) ;;
               *) echo "Refusing unknown package: $name"; exit 1 ;;
             esac
             version=$(npm pkg get version --workspace "$name" | sed -n 's/.*: "\(.*\)".*/\1/p;s/^"\(.*\)"$/\1/p' | head -n 1)

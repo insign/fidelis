@@ -6,19 +6,19 @@ Publishing needs the maintainer's explicit approval. Merging or tagging does not
 
 Publish in this order, because the adapters depend on the core:
 
-1. `@insign/fidelis`
-2. `@insign/fidelis-claude-code`
-3. `@insign/fidelis-opencode`
+1. `fidelis`
+2. `fidelis-claude-code`
+3. `fidelis-opencode`
 
-Confirm first that your npm account controls the `@insign` scope. A GitHub username does not grant it.
+The names are unscoped, so the first publish of each one is what claims it. npm has no reservation without publishing, and it may reject a name as too similar to an existing package only at publish time. `@insign/...` is the fallback, because that scope belongs to the `insign` npm account.
 
 ## Validate before any publish
 
 ```bash
 npm ci && npm test
-npm pack --dry-run --workspace @insign/fidelis
-npm pack --dry-run --workspace @insign/fidelis-claude-code
-npm pack --dry-run --workspace @insign/fidelis-opencode
+npm pack --dry-run --workspace fidelis
+npm pack --dry-run --workspace fidelis-claude-code
+npm pack --dry-run --workspace fidelis-opencode
 node tests/live/pack-smoke.mjs
 ```
 
@@ -28,9 +28,9 @@ Trusted publishing is configured on an existing package, so the first version of
 
 ```bash
 npm login
-npm publish --workspace @insign/fidelis --access public
-npm publish --workspace @insign/fidelis-claude-code --access public
-npm publish --workspace @insign/fidelis-opencode --access public
+npm publish --workspace fidelis --access public
+npm publish --workspace fidelis-claude-code --access public
+npm publish --workspace fidelis-opencode --access public
 ```
 
 Use the smallest scoped credential available. Never commit a token or `.npmrc` secret.

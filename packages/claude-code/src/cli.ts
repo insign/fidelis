@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFil
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { Auditor, jevNative, resolveConfig, Store, textDecisions, type Outcome } from "@insign/fidelis"
+import { Auditor, jevNative, resolveConfig, Store, textDecisions, type Outcome } from "fidelis"
 import { buildEvidence, claudeGenerate, discoverInstructions, parseTranscript, readJsonl } from "./adapter.ts"
 
 const HOOK_EVENTS = { SessionStart: 10, Stop: 900 }

@@ -1,7 +1,7 @@
 // The same fixture through the native noul protocol and the Haiku path. Plausible numbers are not calibration.
 // Run: npm run build && node tests/live/decisions.mjs
-import { jevNative, textDecisions } from "@insign/fidelis"
-import { claudeGenerate } from "@insign/fidelis-claude-code"
+import { jevNative, textDecisions } from "fidelis"
+import { claudeGenerate } from "fidelis-claude-code"
 
 const state = "#0 tool shell input=git commit -m x\n#1 tool shell input=npm run review\nFinal reply: done"
 const questions = [

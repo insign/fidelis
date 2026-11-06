@@ -58,7 +58,7 @@ Add the plugin to `opencode.json`. It loads the server and TUI parts together:
 {
   "plugins": [
     {
-      "package": "@insign/fidelis-opencode",
+      "package": "fidelis-opencode",
       "options": { "allowFreeModelDataUse": true }
     }
   ]
@@ -72,7 +72,7 @@ The footer shows the current state. Type `/fidelis` in a session for its audit h
 ## Install on Claude Code
 
 ```bash
-npm install -g @insign/fidelis-claude-code
+npm install -g fidelis-claude-code
 fidelis-claude-code install            # user settings
 fidelis-claude-code install --project  # or this project's .claude/settings.json
 fidelis-claude-code status <session-id>

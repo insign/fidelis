@@ -1,4 +1,4 @@
-import type { Evidence, ExecEvent, InstructionSource, MessageOrigin } from "@insign/fidelis"
+import type { Evidence, ExecEvent, InstructionSource, MessageOrigin } from "fidelis"
 
 const HEADER = /^Instructions from: (.+)$/gm
 

@@ -1,14 +1,36 @@
 {
-  "name": "@insign/fidelis-claude-code",
+  "name": "fidelis-claude-code",
   "version": "0.1.0",
   "description": "Fidelis Claude Code adapter: Stop-hook audits of AGENTS.md and CLAUDE.md compliance with bounded corrections.",
   "type": "module",
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/insign/fidelis.git", "directory": "packages/claude-code" },
-  "bin": { "fidelis-claude-code": "./dist/cli.js" },
-  "exports": { ".": { "types": "./dist/adapter.d.ts", "import": "./dist/adapter.js" } },
-  "files": ["dist", "hooks", ".claude-plugin", "README.md"],
-  "publishConfig": { "access": "public" },
-  "engines": { "node": ">=22.18" },
-  "dependencies": { "@insign/fidelis": "0.1.0" }
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/insign/fidelis.git",
+    "directory": "packages/claude-code"
+  },
+  "bin": {
+    "fidelis-claude-code": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/adapter.d.ts",
+      "import": "./dist/adapter.js"
+    }
+  },
+  "files": [
+    "dist",
+    "hooks",
+    ".claude-plugin",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "dependencies": {
+    "fidelis": "0.1.0"
+  }
 }
