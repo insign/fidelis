@@ -115,8 +115,17 @@ export default Plugin.define({
       if (known.size) store.writeNested(sessionID, Object.fromEntries(known))
       const outcome = await auditor.complete(sessionID, { sources, evidence, boundaryKey: boundary.key })
       submitted.set(sessionID, boundary.key)
-      // The gap reached the judge; a failure above keeps it for the next audit instead of losing it.
-      if (pending.length) setPendingGaps(store, sessionID, [])
+      // Drop only the gaps this audit actually delivered: a concurrent compaction may have added new ones, and a
+      // superseded or duplicate audit never reached the judge, so its gaps stay pending.
+      const settled = (outcome as { duplicate?: boolean }).duplicate !== true && store.read(sessionID).turn === turn
+      if (settled && pending.length) {
+        const left = pendingGaps(store.read(sessionID))
+        for (const gap of pending) {
+          const index = left.indexOf(gap)
+          if (index >= 0) left.splice(index, 1)
+        }
+        setPendingGaps(store, sessionID, left)
+      }
       if (outcome.action === "correct") {
         try {
           await ctx.session.prompt({ sessionID, text: outcome.text, delivery: "queue", metadata: { fidelis: { origin: "fidelis", auditID: outcome.auditID } } } as any)

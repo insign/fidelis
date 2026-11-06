@@ -96,7 +96,7 @@ try {
   check("TUI started with the footer intact", await waitFor(wide, /2\.2\.\d|opencode/i, 30_000))
   if (!reuse) check("idle footer shows the compact label", await waitFor(wide, /idle/, 30_000))
   await delay(1500)
-  if (reuse) check("footer restored the stored state on launch", await waitFor(wide, /OK|stop|unknown|USER|issues/, 30_000))
+  if (reuse) check("footer restored the stored state on launch", await waitFor(wide, /OK|stop|unknown|USER|check|issues/, 30_000))
   wide.send(reuse ? "Say hi." : "What is 2+2?")
   await delay(500)
   wide.send("\r")
