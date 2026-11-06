@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert"
-import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { test } from "node:test"
@@ -55,7 +55,8 @@ test("nested AGENTS.md arrives through the tool-call hook; other hook output is 
 
 const POSIX_PATHS = { skip: process.platform === "win32" }
 const fixture = () => {
-  const root = mkdtempSync(join(tmpdir(), "fidelis-cc-"))
+  // Discovery resolves symlinks, and macOS keeps its temp directory behind one.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "fidelis-cc-")))
   const home = join(root, "home")
   const repo = join(root, "repo")
   const cwd = join(repo, "pkg")
