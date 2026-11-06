@@ -110,12 +110,14 @@ if (/trust this folder/i.test(visible())) {
 term.stdin.write("Use spaces, thanks. Do not create any file; just confirm.")
 await delay(1200)
 term.stdin.write("\r")
+const auditsBeforeReply = audits(asked.session_id).length
 const replied = await until(() => {
   const current = state(asked.session_id)
-  return current.humanIDs.length > humans && !["AUDITING", "RUNNING"].includes(current.state) ? current : null
+  return current.humanIDs.length > humans && audits(asked.session_id).length > auditsBeforeReply && !["AUDITING", "RUNNING"].includes(current.state) ? current : null
 }, 240_000)
 term.kill("SIGTERM")
-check("typed human reply released the wait once", replied?.humanIDs.length === humans + 1 && replied?.state !== "WAITING_USER", `${replied?.state} humans=${replied?.humanIDs.length}`)
+// The agent may legitimately ask a further question and wait again, so the proof is one release and a new audit.
+check("typed human reply released the wait once and was audited", replied?.humanIDs.length === humans + 1, `${replied?.state} humans=${replied?.humanIDs.length}`)
 
 // 6. Hook timeout: the host ends the hook, the turn still finishes, and the audit does not wedge the session.
 const slow = fixture("timeout", "- Say hello.\n")

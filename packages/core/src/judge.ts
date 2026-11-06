@@ -22,15 +22,18 @@ function clip(text: string, limit: number) {
   return text.length <= limit ? text : `${text.slice(0, limit)}…[clipped ${text.length - limit} chars]`
 }
 
+/** Redact whole values before clipping: a cut secret no longer matches its pattern. */
+const safeClip = (text: string, limit: number) => clip(redact(text), limit)
+
 function eventLine(event: ExecEvent, limit: number) {
   const parts = [`#${event.seq} id=${event.id} ${event.kind}`]
   if (event.actor) parts.push(`actor=${event.actor}`)
   if (event.name) parts.push(`name=${event.name}`)
   if (event.status) parts.push(`status=${event.status}`)
-  if (event.input !== undefined) parts.push(`input=${clip(typeof event.input === "string" ? event.input : JSON.stringify(event.input), limit)}`)
-  if (event.output) parts.push(`output=${clip(event.output, limit)}`)
-  if (event.text) parts.push(`text=${clip(event.text, limit)}`)
-  return redact(parts.join(" "))
+  if (event.input !== undefined) parts.push(`input=${safeClip(typeof event.input === "string" ? event.input : JSON.stringify(event.input), limit)}`)
+  if (event.output) parts.push(`output=${safeClip(event.output, limit)}`)
+  if (event.text) parts.push(`text=${safeClip(event.text, limit)}`)
+  return parts.join(" ")
 }
 
 /**
@@ -54,14 +57,14 @@ export function digest(evidence: Evidence, prior: Finding[], budgetChars: number
   const head = [
     preamble,
     `Evidence source: ${complete ? "known complete" : `INCOMPLETE (${gaps.join("; ") || "unknown gaps"})`}.`,
-    `Current user request: ${redact(clip(evidence.userRequest, 4000))}`,
+    `Current user request: ${safeClip(evidence.userRequest, 4000)}`,
     prior.length ? `Unresolved findings from the previous audit of this turn: ${prior.map((finding) => `${finding.ruleID}: ${clip(finding.quote, 200)}`).join(" | ")}` : "",
     historyLines.length ? `Earlier turns, context only${omitted ? ` (${omitted} older events omitted)` : ""}:\n${historyLines.join("\n")}` : "",
     "Events of the turn under audit:",
   ].filter(Boolean)
   for (const limit of CLIP_STEPS) {
     const lines = evidence.events.map((event) => eventLine(event, rawIDs.has(event.id) ? budgetChars : limit))
-    const text = [...head, ...lines, `Final reply: ${redact(clip(evidence.finalReply, 8000))}`].join("\n")
+    const text = [...head, ...lines, `Final reply: ${safeClip(evidence.finalReply, 8000)}`].join("\n")
     if (text.length <= budgetChars) return { text, clipped: limit !== CLIP_STEPS[0] || text.includes("…[clipped"), complete }
   }
   throw new EvidenceTooLarge(`Evidence for ${evidence.events.length} events exceeds the audit budget of ${budgetChars} characters.`)
@@ -83,7 +86,7 @@ export function judgePreamble(config: Pick<Config, "judgePromptPath">) {
   return config.judgePromptPath ? readFileSync(config.judgePromptPath, "utf8") : JUDGE_PREAMBLE
 }
 
-export async function judge(input: { checklist: Checklist; evidence: Evidence; prior: Finding[]; model: DecisionModel; config: Config }): Promise<JudgeResult> {
+export async function judge(input: { checklist: Checklist; evidence: Evidence; prior: Finding[]; model: DecisionModel; config: Config; overBudget?: () => boolean; onUsage?: (tokens: number, costUSD: number) => void }): Promise<JudgeResult> {
   const { checklist, evidence, prior, model, config } = input
   const budget = config.maxAuditTokens * 4
   const preamble = judgePreamble(config)
@@ -93,11 +96,13 @@ export async function judge(input: { checklist: Checklist; evidence: Evidence; p
   const ask = async (state: string, questions: Question[]) => {
     const answers: Record<string, Answer> = {}
     for (let index = 0; index < questions.length; index += CHUNK) {
+      if (input.overBudget?.()) throw new Error("the audit budget is exhausted")
       const decisions = await withRetry(() => model.ask(state, questions.slice(index, index + CHUNK)), config)
       Object.assign(answers, decisions.answers)
       result.calls += 1
       result.tokens += decisions.tokens ?? 0
       result.costUSD += decisions.costUSD ?? 0
+      input.onUsage?.(decisions.tokens ?? 0, decisions.costUSD ?? 0)
     }
     return answers
   }
@@ -160,22 +165,26 @@ export async function judge(input: { checklist: Checklist; evidence: Evidence; p
     choices: events.map((event) => ({ value: event.id, description: clip(eventLine(event, 160), 240) })),
   })
 
-  // Ambiguous verdicts get one recheck with the disputed spans unclipped.
-  const ambiguous = candidates.filter(({ i }) => {
+  // A verdict resting on clipped evidence gets one recheck with the disputed span in full:
+  // ambiguous ones, and any breach that rests on absence, since the proof may sit in the clipped part.
+  const disputed = candidates.filter(({ i }) => {
     const p = verdict[`r${i}_violated`]?.p ?? 0
-    return p >= 0.5 && p < config.minViolationConfidence
+    return p >= 0.5 && (p < config.minViolationConfidence || (verdict[`r${i}_absence`]?.p ?? 1) >= 0.5)
   })
-  if (first.clipped && ambiguous.length && inTurn.length) {
-    const spans = await ask(first.text, ambiguous.map(({ rule, i }) => cite(`r${i}_span`, rule, "Which event most directly bears on whether this rule was breached?")))
-    const raw = new Set(ambiguous.flatMap(({ i }) => spans[`r${i}_span`]?.choice ?? []))
+  const rechecked = new Set<number>()
+  if (first.clipped && disputed.length && inTurn.length) {
+    const spans = await ask(first.text, disputed.map(({ rule, i }) => cite(`r${i}_span`, rule, "Which event's full content most directly bears on whether this rule was breached?")))
+    const raw = new Set(disputed.flatMap(({ i }) => spans[`r${i}_span`]?.choice ?? []))
     try {
-      const again = await ask(digest(evidence, prior, budget * 2, raw, preamble).text, ambiguous.map(({ rule, i }) => predicate(`r${i}_violated`, rule, QUESTIONS.violated)))
+      const again = await ask(digest(evidence, prior, budget * 2, raw, preamble).text, disputed.map(({ rule, i }) => predicate(`r${i}_violated`, rule, QUESTIONS.violated)))
       Object.assign(verdict, again)
+      for (const { i } of disputed) rechecked.add(i)
     } catch (error) {
       if (!(error instanceof EvidenceTooLarge)) throw error
     }
   }
 
+  const reported = new Set(prior.map((finding) => finding.ruleID))
   const breached: typeof candidates = []
   const complied: typeof candidates = []
   for (const candidate of candidates) {
@@ -183,8 +192,10 @@ export async function judge(input: { checklist: Checklist; evidence: Evidence; p
     const violated = verdict[`r${i}_violated`]?.p
     const satisfied = verdict[`r${i}_satisfied`]?.p ?? 0
     if (violated === undefined) done.set(rule.id, finding(rule, "UNKNOWN", "The decision model gave no answer.", { uncertainty: verdict[`r${i}_violated`]?.error ?? "missing answer" }))
-    else if (violated >= config.minViolationConfidence) {
-      if ((verdict[`r${i}_absence`]?.p ?? 1) >= 0.5 && !first.complete) done.set(rule.id, finding(rule, "UNKNOWN", "The breach rests only on missing events and the evidence source is incomplete.", { probability: violated, uncertainty: "incomplete evidence" }))
+    // A breach an earlier audit of this turn already proved stays on the repair path even if this verdict is less sure.
+    else if (violated >= config.minViolationConfidence || (violated >= 0.5 && reported.has(rule.id))) {
+      const unprovable = !first.complete || (first.clipped && !rechecked.has(i))
+      if ((verdict[`r${i}_absence`]?.p ?? 1) >= 0.5 && unprovable) done.set(rule.id, finding(rule, "UNKNOWN", "The breach rests only on missing events and the evidence is incomplete.", { probability: violated, uncertainty: "incomplete evidence" }))
       else breached.push(candidate)
     } else if (violated >= 0.5) done.set(rule.id, finding(rule, "UNKNOWN", "A breach is possible but below the action threshold.", { probability: violated, uncertainty: "ambiguous verdict" }))
     else if (satisfied >= MIN_SATISFIED) complied.push(candidate)
@@ -192,7 +203,6 @@ export async function judge(input: { checklist: Checklist; evidence: Evidence; p
   }
 
   // Stage 3: evidence and repair routing, asked only for what needs them.
-  const reported = new Set(prior.map((finding) => finding.ruleID))
   const detail = everywhere.length
     ? await ask(first.text, [
         ...breached.flatMap(({ rule, i }) => [

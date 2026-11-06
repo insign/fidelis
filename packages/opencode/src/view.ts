@@ -73,7 +73,7 @@ export interface ChangedEvent {
 }
 
 const TOASTS: Record<string, { title: string; message: string; variant: "warning" | "error" | "info" | "success"; level: "important" | "all" }> = {
-  correct: { title: "Fidelis", message: "Violations found. A correction was sent. Open /fidelis for details.", variant: "warning", level: "important" },
+  correct: { title: "Fidelis", message: "Violations found. Asking the agent to correct them. Open /fidelis for details.", variant: "warning", level: "important" },
   wait: { title: "Fidelis", message: "Waiting for you. Open /fidelis for details.", variant: "info", level: "important" },
   incomplete: { title: "Fidelis", message: "Audit incomplete. Open /fidelis for the reason.", variant: "error", level: "important" },
   stop: { title: "Fidelis", message: "Auditing stopped. Open /fidelis for the report.", variant: "error", level: "important" },

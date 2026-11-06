@@ -86,6 +86,8 @@ test("when compaction removes the opening message, the ledger still separates ea
   assert.equal(evidence.complete, true)
   const unknown = buildEvidence(messages, finalBoundary(messages)!, [{ id: "t", seq: 0, kind: "tool" as const }], true)
   assert.equal(unknown.complete, false)
+  assert.deepEqual(unknown.events, [])
+  assert.deepEqual(unknown.history!.map((event) => event.id), ["t"])
 })
 
 test("compaction without a retained ledger marks evidence incomplete", () => {

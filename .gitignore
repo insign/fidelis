@@ -3,3 +3,4 @@ dist/
 *.tsbuildinfo
 *.tgz
 .task-memory/
+/.task-memory/

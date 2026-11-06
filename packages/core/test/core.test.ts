@@ -486,6 +486,60 @@ test("nested instruction text persists per session", () => {
   assert.deepEqual(s.readNested("x"), { "/p/sub/AGENTS.md": "- c" })
 })
 
+test("a long private key never survives clipping, in the ledger or the digest", () => {
+  const key = `-----BEGIN RSA PRIVATE KEY-----\n${"SECRETKEYDATA".repeat(800)}\n-----END RSA PRIVATE KEY-----`
+  const s = store()
+  const { a } = auditor(s, scripted(CLEAN).model)
+  a.retain("s", [event("k", 0, { at: 1, output: key, input: { body: key }, text: key })])
+  assert.ok(!JSON.stringify(s.readLedger("s")).includes("SECRETKEYDATA"))
+  const out = digest(evidence([event("k", 0, { output: key, input: key, text: key })], { userRequest: key, finalReply: key }), [], 200_000)
+  assert.ok(!out.text.includes("SECRETKEYDATA"))
+  assert.ok(!redact(`-----BEGIN PRIVATE KEY-----\nABCDEF`).includes("ABCDEF"))
+})
+
+test("a breach resting on absence is proved against the full clipped span, or stays UNKNOWN", async () => {
+  const long = event("r", 0, { output: `${"x".repeat(9000)} APPROVED` })
+  const asked: string[] = []
+  const inner = scripted({ ...BREACH, absence: 0.9, cite: "r", span: "r" })
+  const model = { ...inner.model, ask(state: string, questions: any) {
+    asked.push(state)
+    return questions.length === 1 && questions[0].name.endsWith("violated") ? Promise.resolve({ answers: { [questions[0].name]: { p: state.includes("APPROVED") ? 0.05 : 0.98 } } }) : inner.model.ask(state, questions)
+  } }
+  const cleared = await judge({ checklist: checklist([rule()]), evidence: evidence([long]), prior: [], model: model as any, config: config({ maxAuditTokens: 2000 }) })
+  assert.notEqual(cleared.findings[0].status, "VIOLATED")
+  assert.ok(asked.some((state) => state.includes("APPROVED")))
+  const huge = event("h", 0, { output: "y".repeat(40_000) })
+  const unproven = await judge({ checklist: checklist([rule()]), evidence: evidence([huge]), prior: [], model: scripted({ ...BREACH, absence: 0.9, cite: "h", span: "h" }).model, config: config({ maxAuditTokens: 2000 }) })
+  assert.equal(unproven.findings[0].status, "UNKNOWN")
+})
+
+test("a reported breach below the threshold can still be resolved, not left UNKNOWN", async () => {
+  const prior = [{ ruleID: "R-1", status: "VIOLATED", quote: "q", source: "s", obligation: "MUST", explanation: "x", evidence: ["e"], severity: "high" }] as any
+  const result = await judge({ checklist: checklist([rule()]), evidence: evidence([event("e", 0), event("f", 1)]), prior, model: scripted({ ...BREACH, violated: 0.85, absence: 0.1, repaired: 0.9, cite: "e", fix: "f" }).model, config: config() })
+  assert.equal(result.findings[0].status, "VIOLATED")
+  assert.equal(result.findings[0].resolved, true)
+})
+
+test("a partly rejected checklist is not cached and cannot approve", async () => {
+  const s = store()
+  const partial = JSON.stringify({ confidence: 0.9, rules: [RAW_RULE, { ...RAW_RULE, id: "b", quote: "Invented." }] })
+  const { model } = scripted({ ...CLEAN, cite: "e1" })
+  const outcome = await auditor(s, model, {}, async () => partial).a.complete("s", completion())
+  assert.equal(outcome.state, "AUDIT_INCOMPLETE")
+  assert.ok((outcome as any).reason.includes("failed validation"))
+  assert.equal(readChecklistCount(s), 0)
+})
+
+test("the budget stops further judge calls and counts spend from a failed pipeline", async () => {
+  const s = store()
+  const { model, calls } = scripted({ ...CLEAN, cite: "e1" })
+  const outcome = await auditor(s, { ...model, ask: async (state: string, questions: any) => ({ ...(await model.ask(state, questions)), costUSD: 1 }) }, { maxAuditCostUSD: 0.5 }).a.complete("s", completion())
+  assert.equal(outcome.state, "AUDIT_INCOMPLETE")
+  assert.ok((outcome as any).reason.includes("budget"))
+  assert.equal(calls.length, 1)
+  assert.equal(s.read("s").spentUSD, 1)
+})
+
 test("cleanup enforces retention", () => {
   const s = store()
   s.update("old", (state) => void (state.turn = 1))

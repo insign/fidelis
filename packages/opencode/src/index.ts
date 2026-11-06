@@ -40,8 +40,10 @@ export default Plugin.define({
 
     const context = async (sessionID: string): Promise<readonly any[]> => (await ctx.session.context({ sessionID })) as any
 
+    // Only the newest human message can open a turn; replaying history would outlive the bounded ID cache.
     const recordHumans = (sessionID: string, messages: readonly any[]) => {
-      for (const message of messages) if (message.type === "user") auditor.userMessage(sessionID, { id: message.id, origin: messageOrigin(message) })
+      const newest = messages.filter((message) => messageOrigin(message) === "human").at(-1)
+      if (newest) auditor.userMessage(sessionID, { id: newest.id, origin: "human" })
     }
 
     // Events carry no location and reach every instance, so ownership comes from the session itself.
@@ -97,6 +99,10 @@ export default Plugin.define({
         const messages = await context(event.sessionID)
         recordHumans(event.sessionID, messages)
         await retainAll(event.sessionID, messages)
+        // Nested instructions live in messages this compaction is about to remove.
+        const known = nestedFor(event.sessionID)
+        effectiveSources(undefined, messages, known)
+        if (known.size) store.writeNested(event.sessionID, Object.fromEntries(known))
       }),
     ]
 
@@ -106,11 +112,14 @@ export default Plugin.define({
         const sessionID = event.data?.sessionID
         if (!sessionID || temp.has(sessionID)) continue
         if (event.type === "session.execution.succeeded") enqueue(sessionID, () => onCompleted(sessionID))
-        // Delivered, not started: the new message is not in the session context until then.
+        // Delivered, not started: the new message is not in the session context until then. Outside the
+        // queue, so a new human turn invalidates a running audit before it can send a stale correction.
         else if (event.type === "session.inbox.delivered")
-          enqueue(sessionID, async () => {
-            if (await owned(sessionID)) recordHumans(sessionID, await context(sessionID))
-          })
+          void owned(sessionID)
+            .then(async (mine) => {
+              if (mine) recordHumans(sessionID, await context(sessionID))
+            })
+            .catch((error) => console.error(`${FIDELIS_MARKER} ${String(error?.message ?? error)}`))
         else if (event.type === "session.deleted") for (const map of [ambient, nested]) map.delete(sessionID)
         else
           enqueue(sessionID, async () => {

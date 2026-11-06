@@ -136,7 +136,8 @@ export async function getChecklist(input: { store: Store; host: Host; sources: I
     if (confidence < MIN_CONFIDENCE) return { ...miss, reason: `Compiler confidence ${confidence} is too low.` }
     if (rules.length === 0) return { ...miss, reason: `Compiler produced no valid rules from the instructions (${dropped.length} rejected).` }
     const checklist: Checklist = { schema: SCHEMA_VERSION, fingerprint, model: config.compilerModel, compiledAt: Date.now(), rules, dropped }
-    if (config.cacheChecklist) store.putChecklist(checklist)
+    // Only a fully validated checklist is reused; a partial one is retried on the next turn.
+    if (config.cacheChecklist && dropped.length === 0) store.putChecklist(checklist)
     return { ...miss, checklist }
   } catch (error) {
     return { ...miss, reason: `Checklist compilation failed: ${(error as Error).message}` }

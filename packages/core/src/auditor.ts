@@ -118,7 +118,11 @@ export class Auditor {
     const merged = new Map(store.readLedger(sessionID).map((event) => [event.id, event]))
     for (const event of events) merged.set(event.id, event)
     const ordered = [...merged.values()].sort((a, b) => (a.at ?? 0) - (b.at ?? 0) || a.seq - b.seq).map((event, seq) => ({ ...event, seq }))
-    const clipField = (value?: string) => (value === undefined ? undefined : redact(raw || value.length <= LEDGER_CLIP ? value : value.slice(0, LEDGER_CLIP) + LEDGER_MARK))
+    const clipField = (value?: string) => {
+      if (value === undefined) return undefined
+      const clean = redact(value)
+      return raw || clean.length <= LEDGER_CLIP ? clean : clean.slice(0, LEDGER_CLIP) + LEDGER_MARK
+    }
     store.writeLedger(
       sessionID,
       ordered.slice(-LEDGER_MAX).map((event) => ({ ...event, text: clipField(event.text), output: clipField(event.output), input: clipField(typeof event.input === "string" || event.input === undefined ? (event.input as string | undefined) : JSON.stringify(event.input)) })),
@@ -227,21 +231,31 @@ export class Auditor {
 
     let verdict
     try {
-      verdict = await judge({ checklist: compiled.checklist, evidence: input.evidence, prior: begin.findings.filter((finding) => finding.status === "VIOLATED"), model: this.o.judge, config })
+      verdict = await judge({
+        checklist: compiled.checklist,
+        evidence: input.evidence,
+        prior: begin.findings.filter((finding) => finding.status === "VIOLATED"),
+        model: this.o.judge,
+        config,
+        overBudget: () => config.maxAuditCostUSD !== null && begin.spentUSD + metrics.costUSD >= config.maxAuditCostUSD,
+        onUsage: (tokens, costUSD) => {
+          metrics.tokens += tokens
+          metrics.costUSD += costUSD
+        },
+      })
     } catch (error) {
       return incomplete(`Judge failed: ${(error as Error).message}`)
     }
     metrics.judgeCalls = verdict.calls
-    metrics.tokens += verdict.tokens
-    metrics.costUSD += verdict.costUSD
 
-    return this.route(verdict.findings, verdict.waiting, begin, auditID, finish, stale, incomplete)
+    return this.route(verdict.findings, verdict.waiting, compiled.checklist.dropped.length, begin, auditID, finish, stale, incomplete)
   }
 
   /** Deterministic routing. Model output only suggests; these branches decide. */
   private route(
     findings: Finding[],
     waiting: boolean,
+    dropped: number,
     begin: SessionState,
     auditID: string,
     finish: (event: MachineEvent, reason: string | undefined, findings: Finding[], extra?: Partial<SessionState>) => StateName | null,
@@ -277,6 +291,8 @@ export class Auditor {
     }
     const unknown = findings.filter((finding) => finding.status === "UNKNOWN")
     if (unknown.length) return incomplete(`${unknown.length} rule(s) could not be assessed.`, findings)
+    // A rule the compiler produced but validation rejected was never judged, so this cannot be a clean pass.
+    if (dropped) return incomplete(`${dropped} compiled rule(s) failed validation and were not assessed.`, findings)
     const reason = violated.length ? `${violated.length} violation(s) on record, repaired or acknowledged after correction.` : undefined
     const state = finish("clean", reason, findings)
     return state ? { action: "none", state, reason, notice: violated.length ? `Fidelis findings:\n${userNotice(violated)}` : undefined } : stale()

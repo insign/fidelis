@@ -93,8 +93,9 @@ export function buildEvidence(messages: readonly any[], boundary: Boundary, reta
   if (start < 0) gaps.push("the message that opened this turn is not available")
   return {
     userRequest: start < 0 ? "" : (retained[start].text ?? ""),
-    events: start < 0 ? retained : retained.slice(start),
-    history: start < 0 ? [] : retained.slice(0, start),
+    // Unknown turn membership stays context: it can show compliance but can never be accused.
+    events: start < 0 ? [] : retained.slice(start),
+    history: start < 0 ? retained : retained.slice(0, start),
     finalReply: boundary.finalReply,
     complete: gaps.length === 0,
     gaps,
