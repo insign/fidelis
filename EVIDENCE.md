@@ -60,13 +60,19 @@ The same fixture through native `noul` at `https://opencode.ai/inference/systemo
 
 | Suite | Result | Notes |
 | --- | --- | --- |
-| Unit and replay tests | 71 of 71 | No model calls |
-| Claude Code live | 17 of 17 | Violation, one correction, approval, checklist reuse, replay dedupe, `WAITING_USER`, SDK turn stays locked, typed human reply releases once, hook timeout |
-| OpenCode live | 17 of 18 | Same flows plus synthetic message, child-agent attribution, no consent and unavailable models. The failing check was the RPC call, fixed afterwards and confirmed against a real server |
-| TUI live, replaying a stored session from a packed tarball | 11 of 11 | Footer restores stored state, `Monitoring` during a turn, `/fidelis` panel with evidence, no repeated toast, narrow terminal, text-only icons, server restart |
+| Unit and replay tests | 88 of 88 | No model calls |
+| Claude Code live | 17 of 17 | On `c36bdee`. Violation, one correction, approval, checklist reuse, replay dedupe, `WAITING_USER`, SDK turn stays locked, typed human reply releases once, hook timeout |
+| OpenCode live | 17 of 18 | Before the review fixes. Same flows plus synthetic message, child-agent attribution, no consent and unavailable models. The failing check was the RPC call, fixed afterwards and confirmed against a real server |
+| TUI live, replaying a stored session from a packed tarball | 11 of 11 | Before the review fixes. Footer restores stored state, `Monitoring` during a turn, `/fidelis` panel with evidence, no repeated toast, narrow terminal, text-only icons, server restart |
 | Packed tarballs | Pass | Clean install, Claude hook runs, OpenCode server and TUI parts load |
 
 In an earlier full TUI run with model calls, one violation toast was observed and the panel showed the finding.
+
+## Independent review
+
+Three judged rounds with helpers outside the Claude family found one critical issue, a long private key surviving redaction because text was clipped first, and 22 other accepted issues, all fixed with tests. A fourth regression-only round was skipped at the maintainer's request to publish, so the last fixes have unit tests but no independent re-review and no live OpenCode or TUI rerun.
+
+Known residual risk: if a server restart coincides with a compaction inside a turn, an older user message can anchor that turn's evidence window.
 
 ## Not verified
 
