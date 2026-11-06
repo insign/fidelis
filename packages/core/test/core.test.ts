@@ -553,6 +553,13 @@ test("clipped history can be restored for a recheck", () => {
   assert.ok(digest(evidence([event("e", 1)], { history: [old] }), [], 100_000, new Set(["h"])).text.includes("APPROVED"))
 })
 
+test("a restored history span is never omitted for the history budget", () => {
+  const history = [event("old", 0, { output: `${"x".repeat(5000)} APPROVED` }), ...Array.from({ length: 80 }, (_, index) => event(`h${index}`, index + 1, { input: "y".repeat(90) }))]
+  const out = digest(evidence([event("e", 99)], { history }), [], 16_000, new Set(["old"]))
+  assert.ok(out.text.includes("APPROVED"))
+  assert.throws(() => digest(evidence([event("e", 99)], { history: [event("huge", 0, { output: "z".repeat(40_000) })] }), [], 16_000, new Set(["huge"])), EvidenceTooLarge)
+})
+
 test("the whole final reply reaches the judge, or the audit is incomplete", () => {
   const reply = `${"x".repeat(20_000)} Which option do you want?`
   assert.ok(digest(evidence([event("e", 0)], { finalReply: reply }), [], 48_000).text.includes("Which option"))

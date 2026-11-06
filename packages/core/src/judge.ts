@@ -44,10 +44,16 @@ export function digest(evidence: Evidence, prior: Finding[], budgetChars: number
   const history = evidence.history ?? []
   const historyLines: string[] = []
   let used = 0
+  let full = false
   for (const event of [...history].reverse()) {
-    const line = eventLine(event, rawIDs.has(event.id) ? budgetChars : HISTORY_CLIP)
-    if (used + line.length > budgetChars * HISTORY_SHARE) break
-    used += line.length
+    // A restored span always goes in: the recheck is only valid if the judge really sees it. Over budget fails below.
+    const restored = rawIDs.has(event.id)
+    const line = eventLine(event, restored ? budgetChars : HISTORY_CLIP)
+    if (!restored && (full || used + line.length > budgetChars * HISTORY_SHARE)) {
+      full = true
+      continue
+    }
+    if (!restored) used += line.length
     historyLines.unshift(line)
   }
   const omitted = history.length - historyLines.length
