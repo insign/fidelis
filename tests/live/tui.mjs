@@ -137,7 +137,7 @@ try {
   writeConfig({ plainTextIcons: true })
   serve = await startServer()
   const narrow = terminal(30, 60, ["--session", decodeURIComponent(session)])
-  check("after a server restart, a narrow terminal with text-only icons renders the stored state", await waitFor(narrow, /\[F\] (OK|idle|USER)|\[!\] (unknown|issues)|\[X\] stop/, 60_000), narrow.current().slice(-240).replace(/\s+/g, " "))
+  check("after a server restart, a narrow terminal with text-only icons renders the stored state", await waitFor(narrow, /\[F\] (OK|idle|USER|check)|\[!\] (unknown|issues)|\[X\] stop/, 60_000), narrow.current().slice(-240).replace(/\s+/g, " "))
   await delay(2500)
   check("reopening raised no repeated toast", !/Violations found|Open \/fidelis/.test(narrow.text()))
   check("viewing changed no audit state", readFileSync(join(sessionsDir, session, "state.json"), "utf8") === before)

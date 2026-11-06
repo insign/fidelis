@@ -8,6 +8,13 @@ const actionable = (findings: Finding[]) => findings.filter((finding) => finding
 const CHILD_TIMEOUT_MS = 10_000
 /** The idle record can land just after the completion signal: one bounded re-read, never a silent skip. */
 const BOUNDARY_RETRY_MS = 250
+/**
+ * Pending evidence gaps ride in the persisted session state. The published core package this adapter compiles
+ * against predates the field, so it is read and written through this narrow shape instead of a core type change.
+ */
+type WithGaps = SessionState & { gaps?: string[] }
+const pendingGaps = (state: SessionState): string[] => (state as WithGaps).gaps ?? []
+const setPendingGaps = (store: Store, sessionID: string, gaps: string[]) => store.update(sessionID, (state) => { (state as WithGaps).gaps = gaps })
 
 export default Plugin.define({
   id: "fidelis",
@@ -20,6 +27,8 @@ export default Plugin.define({
     const ambient = new Map<string, string>()
     const nested = new Map<string, Map<string, string>>()
     const queue = new Map<string, Promise<void>>()
+    /** Last turn key already handed to complete(), so two completion signals cannot audit one turn twice. */
+    const submitted = new Map<string, string>()
     const store = new Store("opencode")
     const nestedFor = (sessionID: string) => nested.get(sessionID) ?? nested.set(sessionID, new Map(Object.entries(store.readNested(sessionID)))).get(sessionID)!
     store.cleanup(config.retentionDays)
@@ -62,15 +71,18 @@ export default Plugin.define({
     }
 
     // A child that never answers must cost evidence, not stall every later audit of this session.
-    const childContext = async (id: string): Promise<readonly any[]> => {
-      const empty: readonly any[] = []
-      const timeout = new Promise<readonly any[]>((done) => setTimeout(() => done(empty), CHILD_TIMEOUT_MS))
-      return Promise.race([context(id).catch(() => empty), timeout])
+    const childContext = async (id: string): Promise<readonly any[] | null> => {
+      const failed = new Promise<null>((done) => setTimeout(() => done(null), CHILD_TIMEOUT_MS))
+      return Promise.race([context(id).catch(() => null), failed])
     }
 
     const retainAll = async (sessionID: string, messages: readonly any[]) => {
-      const children = await Promise.all(childSessions(messages).map(async (id) => toEvents(await childContext(id), "subagent").filter((event) => event.kind === "tool").map((event) => ({ ...event, id: `${id}:${event.id}` }))))
-      return auditor.retain(sessionID, [...toEvents(messages), ...children.flat()])
+      const ids = childSessions(messages)
+      const read = await Promise.all(ids.map(async (id) => ({ id, messages: await childContext(id) })))
+      // An unreadable child is missing evidence, so the audit must say so instead of approving on a silent gap.
+      const missing = read.filter((child) => !child.messages).map((child) => child.id)
+      const children = read.flatMap((child) => child.messages ? toEvents(child.messages, "subagent").filter((event) => event.kind === "tool").map((event) => ({ ...event, id: `${child.id}:${event.id}` })) : [])
+      return { events: auditor.retain(sessionID, [...toEvents(messages), ...children]), missing }
     }
 
     const onCompleted = async (sessionID: string) => {
@@ -84,17 +96,27 @@ export default Plugin.define({
         boundary = finalBoundary(messages)
       }
       if (!boundary) return
+      // The completion signal and the idle hook can both arrive for the same turn, and the child tools read in between
+      // change the boundary hash: one submitted key per session, so a turn is audited once.
+      if (submitted.get(sessionID) === boundary.key) return
       recordHumans(sessionID, messages)
       const covered = store.readLedger(sessionID).length > 0
       const turn = store.read(sessionID).turn
-      const retained = await retainAll(sessionID, messages)
+      const { events: retained, missing } = await retainAll(sessionID, messages)
       // A human message arrived while gathering evidence: this snapshot belongs to a finished turn.
       if (store.read(sessionID).turn !== turn) return
-      const evidence = buildEvidence(messages, boundary, retained, covered)
+      // An unreadable child transcript is a declared gap, so the audit cannot approve on what it could not read.
+      const gathered = buildEvidence(messages, boundary, retained, covered)
+      const pending = pendingGaps(store.read(sessionID))
+      const extra = [...pending, ...(missing.length ? [`${missing.length} subagent transcript(s) could not be read`] : [])]
+      const evidence = extra.length ? { ...gathered, complete: false, gaps: [...gathered.gaps, ...new Set(extra)] } : gathered
       const known = nestedFor(sessionID)
       const sources = ambient.has(sessionID) ? effectiveSources(ambient.get(sessionID), messages, known) : null
       if (known.size) store.writeNested(sessionID, Object.fromEntries(known))
       const outcome = await auditor.complete(sessionID, { sources, evidence, boundaryKey: boundary.key })
+      submitted.set(sessionID, boundary.key)
+      // The gap reached the judge; a failure above keeps it for the next audit instead of losing it.
+      if (pending.length) setPendingGaps(store, sessionID, [])
       if (outcome.action === "correct") {
         try {
           await ctx.session.prompt({ sessionID, text: outcome.text, delivery: "queue", metadata: { fidelis: { origin: "fidelis", auditID: outcome.auditID } } } as any)
@@ -118,17 +140,21 @@ export default Plugin.define({
         if (!(await owned(event.sessionID))) return
         const messages = await context(event.sessionID)
         recordHumans(event.sessionID, messages)
-        await retainAll(event.sessionID, messages)
+        const { missing } = await retainAll(event.sessionID, messages)
+        // Compaction removes the very metadata that names a child session, so an unreadable child must be remembered
+        // now: the completion path can no longer discover it afterwards.
+        if (missing.length) setPendingGaps(store, event.sessionID, [...new Set([...pendingGaps(store.read(event.sessionID)), `${missing.length} subagent transcript(s) could not be read`])])
         // Nested instructions live in messages this compaction is about to remove.
         const known = nestedFor(event.sessionID)
         effectiveSources(undefined, messages, known)
         if (known.size) store.writeNested(event.sessionID, Object.fromEntries(known))
       }),
-      // Completion is not the only way a turn ends: an idle session is the same boundary, and complete() already
-      // ignores a duplicate boundary. Background work still running means the hook will run again when it finishes.
+      // Completion is not the only way a turn ends: an idle session is the same boundary. Work this session owns keeps
+      // running and wakes the hook again; background owned by a descendant wakes only that descendant.
       await ctx.session.hook("experimental.idle", (event: any) => {
         const sessionID = event?.sessionID
-        if (!sessionID || temp.has(sessionID) || (event.background ?? []).length) return
+        if (!sessionID || temp.has(sessionID)) return
+        if ((event.background ?? []).some((item: any) => item?.sessionID === sessionID)) return
         enqueue(sessionID, () => onCompleted(sessionID))
       }),
     ]
