@@ -25,12 +25,12 @@ export const UI_DEFAULTS: UiOptions = { enabled: true, footer: true, notificatio
 const LABELS: Record<string, [string, string]> = {
   idle: ["🛡️ idle", "[F] idle"],
   compiling: ["🛡️ compile", "[F] compile"],
-  monitoring: ["🛡️ idle", "[F] idle"],
+  monitoring: ["🛡️ check", "[F] check"],
   auditing: ["🔍 audit", "[F] audit"],
   correcting: ["🔧 fix", "[F] fix"],
   approved: ["✅ OK", "[F] OK"],
   violations: ["⚠️ issues", "[!] issues"],
-  waiting: ["⏸️ wait", "[F] wait"],
+  waiting: ["⏸️ USER", "[F] USER"],
   incomplete: ["⚠️ unknown", "[!] unknown"],
   stopped: ["⛔ stop", "[X] stop"],
 }
@@ -44,8 +44,8 @@ export function footerKey(status: Status | undefined, now = Date.now()): keyof t
     case "RUNNING":
       return "monitoring"
     case "AUDITING":
-      // No endless spinner for an audit that died with its process.
-      return now - status.updatedAt > STALE_AUDIT_MS ? "idle" : "auditing"
+      // No endless spinner for an audit that died with its process: a stale audit reads as unknown, never idle.
+      return now - status.updatedAt > STALE_AUDIT_MS ? "incomplete" : "auditing"
     case "CORRECTING":
       return "correcting"
     case "APPROVED":

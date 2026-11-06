@@ -4,6 +4,10 @@ import { buildEvidence, childSessions, effectiveSources, finalBoundary, generate
 import { FidelisRpc } from "./rpc.ts"
 
 const actionable = (findings: Finding[]) => findings.filter((finding) => finding.status === "VIOLATED" && !finding.resolved).length
+/** A child session that never answers must cost evidence, never stall every later audit of the parent. */
+const CHILD_TIMEOUT_MS = 10_000
+/** The idle record can land just after the completion signal: one bounded re-read, never a silent skip. */
+const BOUNDARY_RETRY_MS = 250
 
 export default Plugin.define({
   id: "fidelis",
@@ -57,15 +61,28 @@ export default Plugin.define({
       }
     }
 
+    // A child that never answers must cost evidence, not stall every later audit of this session.
+    const childContext = async (id: string): Promise<readonly any[]> => {
+      const empty: readonly any[] = []
+      const timeout = new Promise<readonly any[]>((done) => setTimeout(() => done(empty), CHILD_TIMEOUT_MS))
+      return Promise.race([context(id).catch(() => empty), timeout])
+    }
+
     const retainAll = async (sessionID: string, messages: readonly any[]) => {
-      const children = await Promise.all(childSessions(messages).map(async (id) => toEvents(await context(id).catch(() => []), "subagent").filter((event) => event.kind === "tool").map((event) => ({ ...event, id: `${id}:${event.id}` }))))
+      const children = await Promise.all(childSessions(messages).map(async (id) => toEvents(await childContext(id), "subagent").filter((event) => event.kind === "tool").map((event) => ({ ...event, id: `${id}:${event.id}` }))))
       return auditor.retain(sessionID, [...toEvents(messages), ...children.flat()])
     }
 
     const onCompleted = async (sessionID: string) => {
       if (!(await owned(sessionID))) return
-      const messages = await context(sessionID)
-      const boundary = finalBoundary(messages)
+      let messages = await context(sessionID)
+      let boundary = finalBoundary(messages)
+      // The idle record can land just after the completion signal: one bounded re-read, never a silent skip.
+      if (!boundary) {
+        await new Promise((done) => setTimeout(done, BOUNDARY_RETRY_MS))
+        messages = await context(sessionID)
+        boundary = finalBoundary(messages)
+      }
       if (!boundary) return
       recordHumans(sessionID, messages)
       const covered = store.readLedger(sessionID).length > 0
@@ -106,6 +123,13 @@ export default Plugin.define({
         const known = nestedFor(event.sessionID)
         effectiveSources(undefined, messages, known)
         if (known.size) store.writeNested(event.sessionID, Object.fromEntries(known))
+      }),
+      // Completion is not the only way a turn ends: an idle session is the same boundary, and complete() already
+      // ignores a duplicate boundary. Background work still running means the hook will run again when it finishes.
+      await ctx.session.hook("experimental.idle", (event: any) => {
+        const sessionID = event?.sessionID
+        if (!sessionID || temp.has(sessionID) || (event.background ?? []).length) return
+        enqueue(sessionID, () => onCompleted(sessionID))
       }),
     ]
 

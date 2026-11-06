@@ -8,11 +8,11 @@ test("footer labels follow the shared state machine", () => {
   assert.equal(footerLabel(undefined), "🛡️ idle")
   assert.equal(footerLabel(status("READY")), "🛡️ idle")
   assert.equal(footerLabel(status("AUDITING", { phase: "compiling" })), "🛡️ compile")
-  assert.equal(footerLabel(status("RUNNING")), "🛡️ idle")
+  assert.equal(footerLabel(status("RUNNING")), "🛡️ check")
   assert.equal(footerLabel(status("AUDITING")), "🔍 audit")
   assert.equal(footerLabel(status("CORRECTING")), "🔧 fix")
   assert.equal(footerLabel(status("APPROVED")), "✅ OK")
-  assert.equal(footerLabel(status("WAITING_USER")), "⏸️ wait")
+  assert.equal(footerLabel(status("WAITING_USER")), "⏸️ USER")
   assert.equal(footerLabel(status("WAITING_USER", { actionable: 1 })), "⚠️ issues")
   assert.equal(footerLabel(status("AUDIT_INCOMPLETE")), "⚠️ unknown")
   assert.equal(footerLabel(status("STOPPED")), "⛔ stop")
@@ -33,7 +33,9 @@ test("incomplete or unknown never reads as approved", () => {
 })
 
 test("a dead audit does not spin forever", () => {
-  assert.equal(footerKey(status("AUDITING", { updatedAt: 0 }), Date.now()), "idle")
+  assert.equal(footerKey(status("AUDITING", { updatedAt: 0 }), Date.now()), "incomplete")
+  assert.equal(footerKey(status("RUNNING", { updatedAt: 0 }), Date.now()), "monitoring")
+  assert.notEqual(footerLabel(status("RUNNING")), footerLabel(status("READY")))
 })
 
 test("toasts: only meaningful transitions, stable dedupe key, no sensitive text", () => {
