@@ -201,7 +201,7 @@ Each milestone must have tests and an independently reviewable commit. Do not ad
 2. **Compiler/cache:** effective instruction discovery contract, priority resolution, canonical hashing, JSON validation, atomic cache, invalidation tests.
 3. **Judge pipeline:** batched model predicates, result mapping, evidence-based findings, uncertainty policy, deterministic correction routing, replay fixtures.
 4. **OpenCode v2 adapter:** actual plugin loading/config, completion recognition, transcript extraction, correction delivery, human-origin gating and live integration tests.
-5. **Claude Code adapter:** hook installer/config, Stop continuation, transcript replay, user waits, host loop guards and live integration tests.
+5. **Claude Code adapter:** hook installer/config, Stop continuation, transcript replay, user waits, host loop guards and live integration tests. Include direct/native AGENTS.md loading without InstructionsLoaded, CLAUDE.md override settings, and nested/imported-rule fixtures.
 6. **Polish/release:** documented configuration and prompts, error reporting, portable file locations, cleanup, reproducible tests, optional npm package publication only after validation. No pre-registration is required on npm; ensure the eventual publisher owns any chosen npm scope (for example, `@insign`) and use `npm publish --access public` for a public scoped release.
 
 Start by reproducing an OpenCode v2 turn end and a Claude Code `Stop` cycle in small test harnesses. If host behavior differs from this design, update the adapter and tests rather than weakening the shared invariants. Prefer **OpenCode v2 as the first end-to-end integration** while keeping the core harness-neutral.
@@ -230,6 +230,12 @@ At minimum, deterministic fixtures plus at least one live smoke run per supporte
 | More than max correction attempts | STOPPED with transparent audit report |
 | OpenCode v2 answer already visible | Follow-up status honest; no claim that response was hidden |
 | Claude Stop hook requests correction | Agent receives feedback; no infinite Stop loop |
+| Claude native AGENTS.md without CLAUDE.md | Source included in checklist even though InstructionsLoaded may not fire |
+| Claude both instruction files under default versus combined setting | Only actually loaded sources govern the checklist |
+| OpenCode v2 completion candidate fires without final turn | No audit until final top-level turn is verified |
+| Jev native noul versus OpenCode predicate transport | Typed adapter converts correctly, no guessed API format |
+| Synthetic prompt or automated correction reported as human input | WAITING_USER stays locked |
+| Model unavailable or no user authorization for sending sensitive rules | Explicit incomplete audit or consent action; no silent paid fallback |
 
 Instrument per-session calls, input/output tokens, latency, cache hit rate, judge uncertainty, false positives, repair success and cost per approved task. Measure false positives and false negatives on a labeled set of real instruction-following violations before enabling aggressive automation. Never present a model-derived percentage as a validated accuracy metric without ground truth.
 
@@ -237,18 +243,55 @@ Instrument per-session calls, input/output tokens, latency, cache hit rate, judg
 
 No CI security enforcement, no generalized permission firewall, no fine-grained per-tool adjudication, no speculative intervention before the agent acts, no automatic code rollback, no hidden reasoning extraction, no mandatory cloud service, and no support claim for Codex/Pi until their adapters are implemented and tested.
 
-## 13. Official implementation references
+## 13. Official documentation: required reading and validation
 
-Re-check these before coding or publishing because integration APIs change:
+**Instruction to the implementation agent:** Read this `PLAN.md` first. It is the project's source of truth. Then consult the **official documentation for each host and provider at the moment of implementation**. Do not implement lifecycle integration from remembered v1 signatures, third-party examples, or assumed event semantics. Record the tested OpenCode / Claude Code versions, relevant API signatures and smoke-test evidence in the implementation work. If documentation and observed behavior differ, investigate and adapt the host adapter; preserve the core's normative invariants.
 
-- [OpenCode v2 plugin packaging and configuration](https://opencode.ai/v2/docs/plugins)
-- [OpenCode v2 server plugin SDK: lifecycle, events, sessions, decisions](https://opencode.ai/v2/docs/build/plugins/server/)
-- [OpenCode v2 public API, including session and event types](https://opencode.ai/v2/docs/api)
-- [OpenCode v1 -> v2 migration guidance](https://dev.opencode.ai/v2/docs/build/plugins/migrate-v1)
-- [Claude Code hooks, Stop feedback, event schemas, and loop protection](https://code.claude.com/docs/en/hooks)
-- [Claude Code native AGENTS.md instruction loading and precedence](https://code.claude.com/docs/en/memory#agentsmd)
-- [Claude Code model and effort configuration](https://code.claude.com/docs/en/model-config)
-- [OpenCode v2 model catalog, Big Pickle/Jev availability and privacy](https://opencode.ai/v2/docs/console/models/)
-- [npm scoped package publication](https://docs.npmjs.com/creating-and-publishing-scoped-public-packages/)
+### 13.1 Mandatory: host APIs, rules, and decisions
+
+| Priority | Official reference | What the agent must verify |
+| --- | --- | --- |
+| **P0** | [OpenCode v2 Server Plugin SDK](https://opencode.ai/v2/docs/build/plugins/server/) | `Plugin.define({ id, setup(ctx) })`, event subscription, lifecycle, session context and correction prompts, `ctx.experimental.generate.decisions`, registration and error handling. |
+| **P0** | [OpenCode v2 API Reference](https://opencode.ai/v2/docs/api) | Actual session/message/inbox types, event schemas, event source attribution, transcript completeness and reliable final-turn boundaries. |
+| **P0** | [Claude Code Hooks Reference](https://code.claude.com/docs/en/hooks) | `SessionStart`, `UserPromptSubmit`, `InstructionsLoaded`, `Stop`, structured hook output, `stop_hook_active`, transcript paths, stop-continuation limits and failures. |
+| **P0** | [Claude Code: AGENTS.md and project instruction loading](https://code.claude.com/docs/en/memory#agentsmd) | Host/version-dependent `AGENTS.md` support, precedence with `CLAUDE.md`, setting `claude-md-and-agents-md`, imports, nested paths and effective instructions. |
+| **P0** | [OpenCode v2: Instructions](https://opencode.ai/v2/docs/instructions) | Global/project/nested `AGENTS.md`, instruction inheritance and inclusion; avoid auditing files the host did not actually load. |
+| **P0** | [TypeSafe / Jev: typed decision primitives](https://docs.typesafe.ai/introduction) | `noul` binary judgments, `choice`, `score`, independent batched questions and their probability/confidence semantics. |
+
+### 13.2 Mandatory before provider and distribution work
+
+| Priority | Official reference | What the agent must verify |
+| --- | --- | --- |
+| **P1** | [OpenCode Console: Models](https://opencode.ai/v2/docs/console/models/) | Big Pickle and Jev identifiers, allowed transports, actual availability, free-tier terms, rate limits and data usage policies. |
+| **P1** | [Claude Code: Model configuration](https://code.claude.com/docs/en/model-config) | Haiku 5.5 selection and `xhigh` effort, overrides, caps and supported invocation forms; no unverified inheritance to nested processes. |
+| **P1** | [Anthropic API: Effort](https://platform.claude.com/docs/en/build-with-claude/effort) | Effort request compatibility when calling Haiku outside the interactive Claude Code CLI. |
+| **P1** | [OpenCode v2: Plugin packaging](https://opencode.ai/v2/docs/build/plugins/) | Exports, package layout, `@opencode/plugin` compatibility, `plugins` configuration and publication approach. |
+| **P1** | [Claude Code: Plugin manifest reference](https://code.claude.com/docs/en/plugins-reference) | `.claude-plugin/plugin.json`, hook packaging, installed path resolution, user config and plugin validation. |
+| **P2** | [OpenCode v1 to v2 migration guide](https://opencode.ai/v2/docs/build/plugins/migrate-v1) | Why v1 hooks/exports are incompatible and which legacy examples must **not** be copied. |
+| **P2, release only** | [npm: Public scoped packages](https://docs.npmjs.com/creating-and-publishing-scoped-public-packages/) | Owning `@insign` or the eventual scope, public package access, authentication and first publication. No pre-registration is needed while only designing. |
+
+### 13.3 Non-negotiable integration findings to account for
+
+1. **Claude Code does not emit `InstructionsLoaded` for an `AGENTS.md` loaded directly through the native Project instructions setting.** The hook observes `CLAUDE.md`, `.claude/rules/*.md`, and imported/symlinked `AGENTS.md` as described by its docs. Instruction discovery therefore cannot rely on `InstructionsLoaded` alone. Determine which files actually govern each turn, including lazily loaded rules, without double-counting.
+2. **Native Claude Code `AGENTS.md` support is version-dependent** (documentation currently specifies v2.1.277+). With the default `claude-md-or-agents-md`, an applicable project `CLAUDE.md` can cause project `AGENTS.md` to be omitted. The `claude-md-and-agents-md` setting changes that. Check host settings, effective instruction scopes and version, not file existence alone.
+3. **Claude Code `Stop` is the final-response integration point, not a per-tool veto.** It does not run on user interruptions, and API failures have their own event behavior. Stop-hook feedback can continue the same agent; `stop_hook_active` and host continuation limits provide backup loop guards. Prefer the documented, non-error guidance mechanism when appropriate; test feedback text actually reaching the agent.
+4. **OpenCode v2 completion requires live validation.** Treat any `session.execution.succeeded`-like event name as a *candidate*, not as proof of final top-level response. Confirm exact installed-version schema and correlate it with the last assistant reply, pending tools/background tasks, turn ID and duplicate callbacks. An idle or completion event alone may not establish finality.
+5. **Jev protocols are distinct.** Native TypeSafe documents a `noul` primitive (value between 0 and 1); OpenCode's `ctx.experimental.generate.decisions` examples use a `predicate` question. Write a provider adapter and typed tests; never pass native `noul` payloads to the OpenCode API by assumption. Calibrate thresholds and preserve evidence citations.
+6. **Human prompts are not automatically trustworthy human-origin proof.** A `UserPromptSubmit`/`prompt` callback may be triggered by automation or a corrective turn. Validate IDs and message source; synthetic/promoted messages must not release `WAITING_USER`.
+7. **Models and privacy are not static contracts.** Big Pickle's free access is time-limited according to the official catalog, and free-period data may be used to improve it. Check availability, user authorization, redaction and disclosure at runtime. Haiku 5.5 supports `xhigh`, but effort caps may apply. Do not silently replace a free/default model with a billable one.
+
+### 13.4 Mandatory proof-of-behavior before broader implementation
+
+Before writing large architectural scaffolding, build the smallest possible exploratory fixture for **each** host and record the observations and host versions:
+
+1. **OpenCode v2 end-to-end turn boundary:** user message → tools → main agent's final reply → exactly one audit. Prove the correct event and fields with a real session and check what was already shown to the user.
+2. **OpenCode v2 evidence + corrective prompt:** retrieve the full attributable tool/session timeline, submit a marked corrective prompt, confirm it reaches the same main agent, and demonstrate no duplicate audit or mistaken human response.
+3. **Claude Code `Stop` continuation:** a deliberately violated behavioral rule produces structured feedback, the same agent resumes, and a subsequent clean completion terminates. Exercise `stop_hook_active`, host continuation cap, interrupt/error cases and hook timeout.
+4. **Claude instruction-loading matrix:** with `AGENTS.md` only, `CLAUDE.md` only, both under each supported setting, imported `AGENTS.md`, and nested rules, compare the *effective* instructions against the Fidelis checklist. Prove direct `AGENTS.md` loads are not inferred from `InstructionsLoaded`.
+5. **Decision adapters:** submit the same well-scoped binary/uncertain fixtures to the OpenCode Decisions API and to the external judge path; verify typed results, confidence handling and fallback. Do not infer that a plausible probability demonstrates calibrated compliance judgment.
+6. **User-wait state:** after the agent asks the user a necessary question, verify synthetic plugin feedback and automatic turns do **not** clear `WAITING_USER`; a newly observed real human reply does. Test both hosts.
+7. **Model configuration and privacy:** resolve the actual provider/model/effort IDs; show behavior when Big Pickle/Jev are unavailable, a permission or key is absent, or the configured provider rejects sensitive input. Check that no paid fallback is silently selected.
+
+**Pass condition:** the exploratory fixture has captured actual event shapes and deterministic replay cases. If any item cannot be proven in the installed host, document the limitation, leave that integration unverified, and do not advertise it as working. Then implement shared core and production adapters using the validated contracts.
 
 **Definition of done:** Both supported hosts can audit a finished unit against effective instructions, provide specific evidence-backed findings, request bounded safe corrections, respect real user waits, and persist/recover state. A README, scaffolding, or untested example is not a functional release.
