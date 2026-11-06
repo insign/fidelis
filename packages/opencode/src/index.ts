@@ -16,8 +16,8 @@ export default Plugin.define({
     const ambient = new Map<string, string>()
     const nested = new Map<string, Map<string, string>>()
     const queue = new Map<string, Promise<void>>()
-    const nestedFor = (sessionID: string) => nested.get(sessionID) ?? nested.set(sessionID, new Map()).get(sessionID)!
     const store = new Store("opencode")
+    const nestedFor = (sessionID: string) => nested.get(sessionID) ?? nested.set(sessionID, new Map(Object.entries(store.readNested(sessionID)))).get(sessionID)!
     store.cleanup(config.retentionDays)
 
     // RPC output must be strict JSON: an undefined field is rejected as rpc.invalid_output.
@@ -69,10 +69,16 @@ export default Plugin.define({
       const covered = store.readLedger(sessionID).length > 0
       const retained = await retainAll(sessionID, messages)
       const evidence = buildEvidence(messages, boundary, retained, covered)
-      const sources = ambient.has(sessionID) ? effectiveSources(ambient.get(sessionID), messages, nestedFor(sessionID)) : null
+      const known = nestedFor(sessionID)
+      const sources = ambient.has(sessionID) ? effectiveSources(ambient.get(sessionID), messages, known) : null
+      if (known.size) store.writeNested(sessionID, Object.fromEntries(known))
       const outcome = await auditor.complete(sessionID, { sources, evidence, boundaryKey: boundary.key })
       if (outcome.action === "correct") {
-        await ctx.session.prompt({ sessionID, text: outcome.text, delivery: "queue", metadata: { fidelis: { origin: "fidelis", auditID: outcome.auditID } } } as any)
+        try {
+          await ctx.session.prompt({ sessionID, text: outcome.text, delivery: "queue", metadata: { fidelis: { origin: "fidelis", auditID: outcome.auditID } } } as any)
+        } catch (error) {
+          auditor.deliveryFailed(sessionID, String((error as Error)?.message ?? error))
+        }
       }
     }
 

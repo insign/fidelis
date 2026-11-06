@@ -148,6 +148,15 @@ export class Store {
     writeAtomic(join(this.sessionDir(sessionID), "ledger.json"), JSON.stringify(events))
   }
 
+  /** Lazily loaded instruction files, which the host may not show again after compaction. */
+  readNested(sessionID: string): Record<string, string> {
+    return readJson<Record<string, string>>(join(this.sessionDir(sessionID), "nested.json")) ?? {}
+  }
+
+  writeNested(sessionID: string, nested: Record<string, string>) {
+    writeAtomic(join(this.sessionDir(sessionID), "nested.json"), JSON.stringify(nested))
+  }
+
   cleanup(retentionDays: number, now = Date.now()) {
     const cutoff = now - retentionDays * 86_400_000
     const prune = (dir: string) => {

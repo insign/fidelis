@@ -93,7 +93,7 @@ Pass options through the OpenCode plugin entry, or put them in `~/.claude/fideli
 | `compilerEffort` | Claude Code: `xhigh` | Ignored on OpenCode, where the model variant applies |
 | `judgeModel` | OpenCode: `opencode/jev-1.13-free`. Claude Code: `claude-haiku-5-5` | Judges each turn |
 | `judgeEffort` | Claude Code: `xhigh` | Ignored on OpenCode |
-| `compilerPromptPath`, `judgePromptPath` | `null` | Replace a built-in prompt. Part of the matching cache key |
+| `compilerPromptPath`, `judgePromptPath` | `null` | Replace a built-in prompt. Part of the matching cache key. A compiler prompt must keep the JSON shape, including `confidence` |
 | `maxCorrections` | `3` | Corrections per turn before `STOPPED` |
 | `minViolationConfidence` | `0.9` | Threshold to act on a violation |
 | `maxAuditTokens` | `12000` | Evidence budget. Over budget is `AUDIT_INCOMPLETE`, never silent truncation |

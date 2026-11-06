@@ -130,7 +130,8 @@ export async function getChecklist(input: { store: Store; host: Host; sources: I
     miss.tokens = output.tokens ?? 0
     miss.costUSD = output.costUSD ?? 0
     const raw = parseJson(output.text)
-    const confidence = typeof raw?.confidence === "number" ? raw.confidence : 1
+    const confidence = raw?.confidence
+    if (typeof confidence !== "number" || !(confidence >= 0 && confidence <= 1)) return { ...miss, reason: "Compiler output has no valid confidence." }
     const { rules, dropped } = validateRules(raw, sources)
     if (confidence < MIN_CONFIDENCE) return { ...miss, reason: `Compiler confidence ${confidence} is too low.` }
     if (rules.length === 0) return { ...miss, reason: `Compiler produced no valid rules from the instructions (${dropped.length} rejected).` }

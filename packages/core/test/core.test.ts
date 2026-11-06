@@ -5,7 +5,7 @@ import { test } from "node:test"
 import { Auditor, FIDELIS_MARKER } from "../src/auditor.ts"
 import { checklistFingerprint, getChecklist, resolveSources, validateRules } from "../src/compiler.ts"
 import { consentProblem, resolveConfig } from "../src/config.ts"
-import { digest, EvidenceTooLarge, judge } from "../src/judge.ts"
+import { digest, EvidenceTooLarge, judge, LEDGER_MARK } from "../src/judge.ts"
 import { transition } from "../src/machine.ts"
 import { jevNative, opencodeDecisions, parseJson, textDecisions, withRetry } from "../src/providers.ts"
 import { redact } from "../src/redact.ts"
@@ -427,6 +427,63 @@ test("omitting old context is stated and blocks a breach that rests on absence",
   assert.ok(small.text.includes("id=h199"))
   const result = await judge({ checklist: checklist([rule()]), evidence: evidence([event("e", 200)], { history }), prior: [], model: scripted({ ...BREACH, absence: 0.9, cite: "e" }).model, config: config({ maxAuditTokens: 2000 }) })
   assert.equal(result.findings[0].status, "UNKNOWN")
+})
+
+test("the ledger marks clipped text, clips tool input, and clipped text cannot prove absence", async () => {
+  const s = store()
+  const { a } = auditor(s, scripted(CLEAN).model)
+  a.retain("s", [event("big", 0, { at: 1, input: { command: `token: supersecret99 ${"z".repeat(5000)}` } })])
+  const stored = s.readLedger("s")[0]
+  assert.equal(typeof stored.input, "string")
+  assert.ok((stored.input as string).includes(LEDGER_MARK))
+  assert.ok((stored.input as string).length < 2200)
+  assert.ok(!(stored.input as string).includes("supersecret99"))
+  const result = await judge({ checklist: checklist([rule()]), evidence: evidence([stored]), prior: [], model: scripted({ ...BREACH, absence: 0.9, cite: "big" }).model, config: config() })
+  assert.equal(result.findings[0].status, "UNKNOWN")
+  assert.ok(digest(evidence([stored]), [], 200_000).text.includes("INCOMPLETE"))
+})
+
+test("a failed correction delivery does not stay CORRECTING", async () => {
+  const s = store()
+  const { a } = auditor(s, scripted({ ...BREACH, cite: "e1" }).model)
+  assert.equal((await a.complete("s", completion())).state, "CORRECTING")
+  a.deliveryFailed("s", "boom")
+  assert.equal(s.read("s").state, "AUDIT_INCOMPLETE")
+  assert.ok(s.read("s").reason?.includes("boom"))
+  a.deliveryFailed("s", "again")
+  assert.ok(!s.read("s").reason?.includes("again"))
+})
+
+test("an unanswered wait question is incomplete, never a correction", async () => {
+  const s = store()
+  const { turn_waiting: _omit, ...answers } = { ...BREACH, cite: "e1" }
+  const outcome = await auditor(s, scripted(answers).model).a.complete("s", completion())
+  assert.equal(outcome.action, "none")
+  assert.equal(outcome.state, "AUDIT_INCOMPLETE")
+})
+
+test("a compiler reply without a valid confidence is rejected", async () => {
+  for (const confidence of [undefined, "high", 7, Number.NaN]) {
+    const result = await getChecklist({ store: store(), host: "opencode", sources: [SOURCE], config: config(), generate: async () => JSON.stringify({ confidence, rules: [RAW_RULE] }) })
+    assert.equal(result.checklist, undefined)
+    assert.ok(result.reason?.includes("confidence"))
+  }
+})
+
+test("supersededBy applies only to a supersedable rule", async () => {
+  const winner = rule({ id: "R-2", quote: "Winner." })
+  const mandatory = rule({ id: "R-1", supersededBy: "R-2", supersedable: false })
+  const flexible = rule({ id: "R-3", quote: "Flexible.", supersededBy: "R-2", supersedable: true })
+  const result = await judge({ checklist: checklist([mandatory, winner, flexible]), evidence: evidence([event("e", 0)]), prior: [], model: scripted({ ...CLEAN, cite: "e" }).model, config: config() })
+  assert.equal(result.findings[0].status, "SATISFIED")
+  assert.equal(result.findings[2].status, "NOT_APPLICABLE")
+})
+
+test("nested instruction text persists per session", () => {
+  const s = store()
+  assert.deepEqual(s.readNested("x"), {})
+  s.writeNested("x", { "/p/sub/AGENTS.md": "- c" })
+  assert.deepEqual(s.readNested("x"), { "/p/sub/AGENTS.md": "- c" })
 })
 
 test("cleanup enforces retention", () => {

@@ -11,7 +11,12 @@ const CLIP_STEPS = [2000, 500, 120]
 const HISTORY_CLIP = 120
 const HISTORY_SHARE = 0.3
 
+/** Marks text the ledger cut. An event read back from it can no longer prove what it does not show. */
+export const LEDGER_MARK = "…[clipped in ledger]"
+
 export class EvidenceTooLarge extends Error {}
+
+const ledgerClipped = (event: ExecEvent) => [event.text, event.output, event.input].some((value) => typeof value === "string" && value.includes(LEDGER_MARK))
 
 function clip(text: string, limit: number) {
   return text.length <= limit ? text : `${text.slice(0, limit)}…[clipped ${text.length - limit} chars]`
@@ -43,8 +48,9 @@ export function digest(evidence: Evidence, prior: Finding[], budgetChars: number
     historyLines.unshift(line)
   }
   const omitted = history.length - historyLines.length
-  const complete = evidence.complete && omitted === 0
-  const gaps = [...evidence.gaps, ...(omitted ? [`${omitted} older events omitted to fit the budget`] : [])]
+  const clippedInLedger = [...history, ...evidence.events].some(ledgerClipped)
+  const complete = evidence.complete && omitted === 0 && !clippedInLedger
+  const gaps = [...evidence.gaps, ...(omitted ? [`${omitted} older events omitted to fit the budget`] : []), ...(clippedInLedger ? ["some retained events were clipped after the host compacted them"] : [])]
   const head = [
     preamble,
     `Evidence source: ${complete ? "known complete" : `INCOMPLETE (${gaps.join("; ") || "unknown gaps"})`}.`,
@@ -121,7 +127,9 @@ export async function judge(input: { checklist: Checklist; evidence: Evidence; p
     { type: "predicate", name: "turn_waiting", instructions: QUESTIONS.waiting },
     ...open.flatMap((rule, i) => [predicate(`r${i}_applies`, rule, QUESTIONS.applies), predicate(`r${i}_deadline`, rule, QUESTIONS.deadline)]),
   ])
-  result.waiting = (scope.turn_waiting?.p ?? 0) >= 0.5
+  const waiting = scope.turn_waiting?.p
+  if (typeof waiting !== "number") throw new Error("the model did not answer whether the agent is waiting for the user")
+  result.waiting = waiting >= 0.5
   const applying = new Set(open.filter((_, i) => (scope[`r${i}_applies`]?.p ?? 1) >= 0.5).map((rule) => rule.id))
   const candidates: { rule: Rule; i: number }[] = []
   open.forEach((rule, i) => {
@@ -129,7 +137,7 @@ export async function judge(input: { checklist: Checklist; evidence: Evidence; p
     const deadline = scope[`r${i}_deadline`]?.p
     if (applies === undefined || deadline === undefined) return void done.set(rule.id, finding(rule, "UNKNOWN", "The decision model gave no answer.", { uncertainty: scope[`r${i}_applies`]?.error ?? scope[`r${i}_deadline`]?.error ?? "missing answer" }))
     if (applies < 0.5) return void done.set(rule.id, finding(rule, "NOT_APPLICABLE", "Does not govern this turn.", { probability: applies }))
-    if (rule.supersededBy && applying.has(rule.supersededBy)) return void done.set(rule.id, finding(rule, "NOT_APPLICABLE", `Superseded by applicable rule ${rule.supersededBy}.`))
+    if (rule.supersedable && rule.supersededBy && applying.has(rule.supersededBy)) return void done.set(rule.id, finding(rule, "NOT_APPLICABLE", `Superseded by applicable rule ${rule.supersededBy}.`))
     if (deadline < 0.5) return void done.set(rule.id, finding(rule, "PENDING", "Its deadline has not occurred at this boundary.", { probability: deadline }))
     candidates.push({ rule, i })
   })

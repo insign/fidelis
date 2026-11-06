@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import type { AuditMetrics, AuditRecord, Config, Evidence, ExecEvent, Finding, Host, InstructionSource, Outcome, SessionState, StateName } from "./types.ts"
 import { consentProblem } from "./config.ts"
 import { getChecklist, resolveSources } from "./compiler.ts"
-import { judge } from "./judge.ts"
+import { judge, LEDGER_MARK } from "./judge.ts"
 import { transition, type MachineEvent } from "./machine.ts"
 import type { DecisionModel, GenerateText } from "./providers.ts"
 import { redact } from "./redact.ts"
@@ -98,6 +98,19 @@ export class Auditor {
     }, "ended")
   }
 
+  /** The agent never received the correction, so nothing is being corrected. */
+  deliveryFailed(sessionID: string, reason: string) {
+    this.save(
+      sessionID,
+      (state) => {
+        if (state.state !== "CORRECTING") return
+        state.state = "AUDIT_INCOMPLETE"
+        state.reason = `The correction could not be delivered: ${reason}`
+      },
+      "incomplete",
+    )
+  }
+
   /** Merge host events with the ledger so compaction cannot erase evidence the audit still needs. */
   retain(sessionID: string, events: ExecEvent[]): ExecEvent[] {
     const store = this.o.store
@@ -105,10 +118,10 @@ export class Auditor {
     const merged = new Map(store.readLedger(sessionID).map((event) => [event.id, event]))
     for (const event of events) merged.set(event.id, event)
     const ordered = [...merged.values()].sort((a, b) => (a.at ?? 0) - (b.at ?? 0) || a.seq - b.seq).map((event, seq) => ({ ...event, seq }))
-    const clipField = (value?: string) => (value === undefined ? undefined : redact(raw ? value : value.slice(0, LEDGER_CLIP)))
+    const clipField = (value?: string) => (value === undefined ? undefined : redact(raw || value.length <= LEDGER_CLIP ? value : value.slice(0, LEDGER_CLIP) + LEDGER_MARK))
     store.writeLedger(
       sessionID,
-      ordered.slice(-LEDGER_MAX).map((event) => ({ ...event, text: clipField(event.text), output: clipField(event.output), input: event.input === undefined ? undefined : JSON.parse(redact(JSON.stringify(event.input))) })),
+      ordered.slice(-LEDGER_MAX).map((event) => ({ ...event, text: clipField(event.text), output: clipField(event.output), input: clipField(typeof event.input === "string" || event.input === undefined ? (event.input as string | undefined) : JSON.stringify(event.input)) })),
     )
     return ordered
   }

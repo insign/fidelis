@@ -76,9 +76,21 @@ test("earlier turns become history; the reply to a wait keeps the question in co
   assert.deepEqual(evidence.history!.map((event) => event.kind), ["user", "assistant"])
 })
 
+test("when compaction removes the opening message, the ledger still separates earlier turns", () => {
+  const messages = [{ type: "compaction" }, assistant("b", "stop", [reply("done")]), idle("i")]
+  const retained = [{ id: "old", seq: 0, kind: "user" as const, text: "old ask" }, { id: "t0", seq: 1, kind: "tool" as const }, { id: "new", seq: 2, kind: "user" as const, text: "new ask" }, { id: "t1", seq: 3, kind: "tool" as const }]
+  const evidence = buildEvidence(messages, finalBoundary(messages)!, retained, true)
+  assert.equal(evidence.userRequest, "new ask")
+  assert.deepEqual(evidence.history!.map((event) => event.id), ["old", "t0"])
+  assert.deepEqual(evidence.events.map((event) => event.id), ["new", "t1"])
+  assert.equal(evidence.complete, true)
+  const unknown = buildEvidence(messages, finalBoundary(messages)!, [{ id: "t", seq: 0, kind: "tool" as const }], true)
+  assert.equal(unknown.complete, false)
+})
+
 test("compaction without a retained ledger marks evidence incomplete", () => {
   const messages = [{ type: "compaction" }, user("u"), assistant("a", "stop", [reply("r")]), idle()]
   const boundary = finalBoundary(messages)!
-  assert.equal(buildEvidence(messages, boundary, [], false).complete, false)
-  assert.equal(buildEvidence(messages, boundary, [], true).complete, true)
+  assert.equal(buildEvidence(messages, boundary, toEvents(messages), false).complete, false)
+  assert.equal(buildEvidence(messages, boundary, toEvents(messages), true).complete, true)
 })

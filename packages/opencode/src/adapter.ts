@@ -85,15 +85,14 @@ export function childSessions(messages: readonly any[]): string[] {
   return [...ids]
 }
 
-/** Partition by the turn's opening message. Without it (compacted away), everything counts as the turn, which never hides an event. */
+/** Partition from the ledger, which keeps the turn's opening message even after the host compacts it away. */
 export function buildEvidence(messages: readonly any[], boundary: Boundary, retained: ExecEvent[], ledgerCovered: boolean): Evidence {
-  const hasCompaction = messages.some((message) => message.type === "compaction")
   const gaps: string[] = []
-  if (hasCompaction && !ledgerCovered) gaps.push("the host compacted history before Fidelis retained it")
-  const human = [...messages].reverse().find((message) => messageOrigin(message) === "human")
-  const start = human ? retained.findIndex((event) => event.id === human.id) : -1
+  if (messages.some((message) => message.type === "compaction") && !ledgerCovered) gaps.push("the host compacted history before Fidelis retained it")
+  const start = retained.findLastIndex((event) => event.kind === "user")
+  if (start < 0) gaps.push("the message that opened this turn is not available")
   return {
-    userRequest: human?.text ?? "",
+    userRequest: start < 0 ? "" : (retained[start].text ?? ""),
     events: start < 0 ? retained : retained.slice(start),
     history: start < 0 ? [] : retained.slice(0, start),
     finalReply: boundary.finalReply,

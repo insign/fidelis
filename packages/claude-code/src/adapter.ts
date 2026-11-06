@@ -70,9 +70,8 @@ export function parseTranscript(records: any[], actor: "agent" | "subagent" = "a
       if (attachment.type === "instructions") for (const file of attachment.files ?? []) addSource(file.path, String(file.type ?? "unknown").toLowerCase(), file.content)
       if (attachment.type === "nested_memory" || attachment.type === "memory") addSource(attachment.path, "nested", attachment.content?.content ?? attachment.content)
       if (attachment.type === "queued_command" && attachment.humanTurn === true && attachment.origin?.kind === "human") {
-        const id = attachment.source_uuid ?? record.uuid
-        messages.push({ id, origin: "human" })
-        events.push({ id, seq: 0, at, kind: "user", text: textOf(attachment.prompt) })
+        // Evidence only: a mid-turn steer must not restart the turn or its correction budget.
+        events.push({ id: attachment.source_uuid ?? record.uuid, seq: 0, at, kind: "user", text: textOf(attachment.prompt) })
       }
       if (attachment.type === "hook_additional_context" && attachment.hookEvent === "Stop") events.push({ id: record.uuid, seq: 0, at, kind: "fidelis", text: textOf(attachment.content) })
       // Observed on 2.1.318: the built-in AGENTS.md reader injects nested files through a tool-call hook.

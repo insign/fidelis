@@ -12,7 +12,7 @@ const toolUse = (uuid: string, id: string) => ({ type: "assistant", uuid, timest
 const toolResult = (id: string, is_error = false) => ({ type: "user", uuid: `r-${id}`, timestamp: "2026-11-05T10:00:02Z", message: { content: [{ type: "tool_result", tool_use_id: id, content: "ok", is_error }] } })
 const text = (uuid: string, value: string) => ({ type: "assistant", uuid, timestamp: "2026-11-05T10:00:03Z", message: { content: [{ type: "text", text: value }] } })
 
-test("origins: human, SDK, task notification and stop feedback are told apart", () => {
+test("origins: human, SDK, task notification and stop feedback are told apart; a mid-turn steer stays evidence", () => {
   const parsed = parseTranscript([
     human("h"),
     prompt("sdk", { turnOrigin: "sdk", promptSource: "sdk" }),
@@ -21,7 +21,8 @@ test("origins: human, SDK, task notification and stop feedback are told apart", 
     { type: "attachment", uuid: "q", attachment: { type: "queued_command", humanTurn: true, origin: { kind: "human" }, source_uuid: "src", prompt: "steer" } },
     { type: "attachment", uuid: "f", attachment: { type: "hook_additional_context", hookEvent: "Stop", content: ["[Fidelis audit] fix"] } },
   ])
-  assert.deepEqual(parsed.messages, [{ id: "h", origin: "human" }, { id: "sdk", origin: "sdk" }, { id: "task", origin: "synthetic" }, { id: "src", origin: "human" }])
+  assert.deepEqual(parsed.messages, [{ id: "h", origin: "human" }, { id: "sdk", origin: "sdk" }, { id: "task", origin: "synthetic" }])
+  assert.ok(parsed.events.some((event) => event.id === "src" && event.kind === "user" && event.text === "steer"))
   assert.ok(parsed.events.some((event) => event.kind === "fidelis"))
 })
 
