@@ -1,0 +1,25 @@
+{
+  "name": "fidelis-monorepo",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "workspaces": [
+    "packages/core",
+    "packages/claude-code",
+    "packages/opencode"
+  ],
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "tsc -b packages/core packages/claude-code && tsc -p packages/opencode",
+    "test": "npm run build && node --test \"packages/*/test/*.test.ts\"",
+    "test:live:claude": "npm run build && node tests/live/claude.mjs",
+    "test:live:opencode": "npm run build && node tests/live/opencode.mjs",
+    "test:live:tui": "npm run build && node tests/live/tui.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

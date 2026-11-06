@@ -1,0 +1,12 @@
+{
+  "name": "@insign/fidelis",
+  "version": "0.1.0",
+  "description": "Harness-agnostic AI agent auditor core: checklist compiler, judge pipeline and session state machine.",
+  "type": "module",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/insign/fidelis.git", "directory": "packages/core" },
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist", "README.md"],
+  "publishConfig": { "access": "public" },
+  "engines": { "node": ">=22.18" }
+}
