@@ -202,7 +202,7 @@ Each milestone must have tests and an independently reviewable commit. Do not ad
 3. **Judge pipeline:** batched model predicates, result mapping, evidence-based findings, uncertainty policy, deterministic correction routing, replay fixtures.
 4. **OpenCode v2 adapter:** actual plugin loading/config, completion recognition, transcript extraction, correction delivery, human-origin gating and live integration tests.
 5. **Claude Code adapter:** hook installer/config, Stop continuation, transcript replay, user waits, host loop guards and live integration tests. Include direct/native AGENTS.md loading without InstructionsLoaded, CLAUDE.md override settings, and nested/imported-rule fixtures.
-6. **Polish/release:** documented configuration and prompts, error reporting, portable file locations, cleanup, reproducible tests, optional npm package publication only after validation. No pre-registration is required on npm; ensure the eventual publisher owns any chosen npm scope (for example, `@insign`) and use `npm publish --access public` for a public scoped release.
+6. **Polish/release:** documented configuration and prompts, error reporting, portable file locations, cleanup, reproducible tests, npm workspace/package metadata and a validated release workflow. Bootstrap each public scoped npm package with an explicitly authorized first publish, then configure and validate **npm Trusted Publishing via GitHub Actions OIDC** for subsequent releases. See §14. Do not publish without the maintainer's explicit approval.
 
 Start by reproducing an OpenCode v2 turn end and a Claude Code `Stop` cycle in small test harnesses. If host behavior differs from this design, update the adapter and tests rather than weakening the shared invariants. Prefer **OpenCode v2 as the first end-to-end integration** while keeping the core harness-neutral.
 
@@ -269,6 +269,8 @@ No CI security enforcement, no generalized permission firewall, no fine-grained 
 | **P1** | [Claude Code: Plugin manifest reference](https://code.claude.com/docs/en/plugins-reference) | `.claude-plugin/plugin.json`, hook packaging, installed path resolution, user config and plugin validation. |
 | **P2** | [OpenCode v1 to v2 migration guide](https://opencode.ai/v2/docs/build/plugins/migrate-v1) | Why v1 hooks/exports are incompatible and which legacy examples must **not** be copied. |
 | **P2, release only** | [npm: Public scoped packages](https://docs.npmjs.com/creating-and-publishing-scoped-public-packages/) | Owning `@insign` or the eventual scope, public package access, authentication and first publication. No pre-registration is needed while only designing. |
+| **P2, release only** | [npm: Trusted Publishing](https://docs.npmjs.com/trusted-publishers/) | Per-package trusted publisher setup, two-day validation window, OIDC constraints, token restrictions, provenance and troubleshooting. |
+| **P2, release only** | [GitHub: setup-node OIDC publishing](https://github.com/actions/setup-node/blob/main/docs/advanced-usage.md#publishing-to-npm-with-trusted-publisher-oidc) | Node/npm compatibility, GitHub-hosted runners, registry configuration and release-build caching policy. |
 
 ### 13.3 Non-negotiable integration findings to account for
 
@@ -293,5 +295,61 @@ Before writing large architectural scaffolding, build the smallest possible expl
 7. **Model configuration and privacy:** resolve the actual provider/model/effort IDs; show behavior when Big Pickle/Jev are unavailable, a permission or key is absent, or the configured provider rejects sensitive input. Check that no paid fallback is silently selected.
 
 **Pass condition:** the exploratory fixture has captured actual event shapes and deterministic replay cases. If any item cannot be proven in the installed host, document the limitation, leave that integration unverified, and do not advertise it as working. Then implement shared core and production adapters using the validated contracts.
+
+## 14. npm release and GitHub Actions OIDC (release milestone only)
+
+**Status: documentation/plan, not executed.** No npm packages are published and no GitHub Actions release workflow is installed by this document change. Publication must require explicit maintainer authorization; developing or merging code is not permission to push a release.
+
+### 14.1 Packages and initial bootstrap
+
+The repository is a monorepo. The *proposed* public packages are `@insign/fidelis` (shared core), `@insign/fidelis-opencode` (OpenCode adapter) and `@insign/fidelis-claude-code` (Claude Code adapter). Verify the final package names, which packages should truly be public, workspace dependencies, and that the publisher **controls the npm scope** `@insign`. A GitHub username does not confer npm namespace ownership. Keep unpublished/internal workspaces `private: true`.
+
+1. Validate the release artifacts, npm `name`, `version`, `exports`, `files`, `license`, `publishConfig.access: "public"`, README, and `repository.url` (must match `https://github.com/insign/fidelis`). Run `npm pack --dry-run` for each publishable workspace, plus actual package install/smoke tests.
+2. **Bootstrap the first version of each package using an authorized interactive/npm-token publication** (for example, `npm publish --access public` from the appropriate workspace) after release approval, since configuration of a trusted publisher is managed through the npm package settings. Use the smallest possible scoped publish credential, do not commit tokens or `.npmrc` secrets and do not print them in CI output.
+3. Once a package exists, open **npmjs.com → package → Settings → Trusted publishing** and create a GitHub Actions trusted publisher **for that package**. Do not assume that one trusted-publisher registration covers every monorepo package.
+4. Configure publisher identity: **Organization/user:** `insign`; **Repository:** `fidelis`; **Workflow filename:** `publish.yml` (filename only, not `.github/workflows/publish.yml`); **Environment:** optional, but it must exactly match the workflow if specified. On current npm settings, explicitly enable **direct `npm publish`** as an allowed action if using direct publishing; stage-only configurations require a separate human approval workflow.
+5. **Perform a successful OIDC publication within two days of registering each trusted publisher.** Current npm documentation requires first use within 48 hours to validate and bind the publisher to the immutable repository identity; an expired registration must be deleted and recreated.
+6. After OIDC is demonstrated, select npm's **require 2FA and disallow tokens** publishing policy where appropriate, and revoke any bootstrap/write tokens that are no longer needed. Do **not** disable token publishing before the trusted path is validated.
+
+### 14.2 GitHub Actions workflow contract
+
+Create `.github/workflows/publish.yml` as part of implementation, not while merely planning. The release job must run on a **GitHub-hosted runner** (OIDC trusted publishing currently does not support self-hosted runners), use **Node.js 24** and **npm CLI >= 11.5.1** (Node >= 22.14.0 is the npm minimum), and configure:
+
+```yaml
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          package-manager-cache: false
+      - run: npm ci
+      - run: npm run build --if-present
+      - run: npm test
+      # Publish only explicitly approved, validated and version-bumped workspaces.
+      # In the monorepo publish each package in dependency order or use a proven
+      # release tool; do not blindly run npm publish at the repository root.
+```
+
+This is a **permissions/runner skeleton**, not an enabled publishing workflow. During implementation, choose a release trigger (protected version tag or explicitly approved manual dispatch), pin reviewed action versions, enforce branch/tag protections and/or an approval-gated environment when used, validate workflow identity, and add exact `npm publish --workspace <name> --access public` commands only for packages actually approved for release. Keep publish jobs isolated from untrusted PR code. Avoid caching dependencies in release jobs (`package-manager-cache: false`).
+
+With successful trusted publishing, **OIDC supplies temporary credentials automatically; no `NPM_TOKEN` or `NODE_AUTH_TOKEN` is needed for public-package publishing**. npm generates provenance attestations automatically for public packages published from the public repository. A read-only token may still be needed separately to *install* private dependencies; never give that token publishing permissions.
+
+### 14.3 Validation and failure cases
+
+- Run `node --version`, `npm --version`, `npm pack --dry-run` and tests before publishing; confirm each workspace resolves from an installed tarball and the published version is not already present.
+- Test that the GitHub owner/repository, exact workflow filename, optional environment and each package's `repository.url` match npm's trusted publisher records. Mismatches can yield `ENEEDAUTH` or `E404` despite correct OIDC permissions.
+- Validate OIDC with an **authorized actual publish**; `npm whoami` is **not** a valid test of trusted-publishing permission. Avoid no-op fake validations or a needless new public version.
+- Confirm no traditional npm write token is referenced by the steady-state workflow; ensure release output has correct provenance and installed artifacts contain only intended files.
+- Publish each package's version and dependency graph deliberately: dependencies must be available before dependent adapters. A GitHub monorepo and one workflow can publish multiple packages, but trusted publisher entries remain **per npm package**.
+- Document manual bootstrap, OIDC enrollment, a rollback/remediation process for failed releases, dependency install auth and configuration-expiry recovery.
+- Re-check [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) before the first release: eligibility, allowed actions, Node/npm versions and expiry behavior can change.
 
 **Definition of done:** Both supported hosts can audit a finished unit against effective instructions, provide specific evidence-backed findings, request bounded safe corrections, respect real user waits, and persist/recover state. A README, scaffolding, or untested example is not a functional release.
