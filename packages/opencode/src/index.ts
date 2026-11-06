@@ -113,12 +113,14 @@ export default Plugin.define({
       const known = nestedFor(sessionID)
       const sources = ambient.has(sessionID) ? effectiveSources(ambient.get(sessionID), messages, known) : null
       if (known.size) store.writeNested(sessionID, Object.fromEntries(known))
+      const previousAudit = store.read(sessionID).lastAuditID
       const outcome = await auditor.complete(sessionID, { sources, evidence, boundaryKey: boundary.key })
       submitted.set(sessionID, boundary.key)
       // Drop only the gaps this audit actually put in front of the judge: a skipped, duplicated, superseded or
-      // unjudged outcome never read them, and the child metadata may already be gone.
-      const judged = (store.audits(sessionID, 1)[0]?.metrics?.judgeCalls ?? 0) > 0
-      const settled = (outcome as { duplicate?: boolean }).duplicate !== true && outcome.state !== "AUDIT_INCOMPLETE" && judged && store.read(sessionID).turn === turn
+      // unjudged outcome never read them, and the child metadata may already be gone. A recorded audit is the
+      // only proof the judge ran, so the turn key it stamps must be new.
+      const judged = store.read(sessionID).lastAuditID !== previousAudit && (store.audits(sessionID, 1)[0]?.metrics?.judgeCalls ?? 0) > 0
+      const settled = (outcome as { duplicate?: boolean }).duplicate !== true && judged && store.read(sessionID).turn === turn
       if (settled && pending.length) {
         const left = pendingGaps(store.read(sessionID))
         for (const gap of pending) {
