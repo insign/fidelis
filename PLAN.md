@@ -1,6 +1,6 @@
 # Fidelis: implementation plan
 
-**Status:** specification, not implemented. **Repository:** `insign/fidelis`. **License:** MIT.
+**Status:** specification. Version 0.1.0 implements it; see [EVIDENCE.md](EVIDENCE.md) for what is verified and what is not. **Repository:** `insign/fidelis`. **License:** MIT.
 
 This is the authoritative implementation brief for the first release. Implement only the functionality and files needed for the milestones, preserve the repository's existing license, and validate real host APIs against their current documentation and an installed host before calling an integration complete. Fidelis' public description is: **Harness-agnostic AI agent auditor that verifies compliance with AGENTS.md, detects behavioral violations, and drives autonomous corrections.**
 
