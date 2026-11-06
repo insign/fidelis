@@ -1,0 +1,7 @@
+{
+  "name": "fidelis",
+  "version": "0.1.0",
+  "description": "Audits finished turns against the instructions Claude actually loaded and requests bounded corrections.",
+  "license": "MIT",
+  "repository": "https://github.com/insign/fidelis"
+}
