@@ -23,5 +23,5 @@
     "@xterm/headless": "^6.0.0",
     "typescript": "^5.9.0"
   },
-  "version": "0.1.4"
+  "version": "0.1.5"
 }
