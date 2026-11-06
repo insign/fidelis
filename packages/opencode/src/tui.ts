@@ -18,9 +18,9 @@ const MAX_SEEN = 200
 export default Plugin.define({
   id: "fidelis.tui",
   setup(context: any) {
-    const ui = { ...UI_DEFAULTS, ...(context.options?.ui ?? {}) }
-    if (!ui.enabled) return
-
+    // The server holds the plugin's options; this part does not receive them from a server-loaded entry.
+    const [ui, setUi] = createSignal({ ...UI_DEFAULTS, ...(context.options?.ui ?? {}) })
+    const location = () => context.location ?? context.data.location.default()
     const [statuses, setStatuses] = createSignal<Record<string, Status>>({})
     const [seen, updateSeen] = context.storage.store("toasts", { initial: { keys: [] as string[] } })
     const api = () => context.client.rpc(FidelisRpc)
@@ -33,18 +33,21 @@ export default Plugin.define({
     const refresh = async (sessionID: string) => {
       try {
         // RPC methods resolve per location, so the plugin instance that owns this directory answers.
-        const next = (await api().status({ sessionID }, { location: context.location ?? context.data.location.default() })) as Status
+        const next = (await api().status({ sessionID }, { location: location() })) as Status
         setStatuses((all) => (shouldApply(all[sessionID], next) ? { ...all, [sessionID]: next } : all))
       } catch {
         // Server part absent or disconnected: the footer stays neutral and auditing is unaffected.
       }
     }
 
+    const loadUi = () => api().ui({}, { location: location() }).then((next: any) => setUi((current) => ({ ...current, ...next })), () => {})
+    void loadUi()
+
     const subscribe = () =>
       api().events.on("changed", (event: any) => {
         const data = event.data
         void refresh(data.sessionID)
-        const toast = toastFor(data, ui.notifications)
+        const toast = ui().enabled ? toastFor(data, ui().notifications) : null
         if (!toast || seen.keys.includes(toast.key)) return
         void updateSeen((draft: { keys: string[] }) => {
           draft.keys = [...draft.keys, toast.key].slice(-MAX_SEEN)
@@ -61,6 +64,7 @@ export default Plugin.define({
     const stopConnected = context.data.on("server.connected", () => {
       unsubscribe?.()
       unsubscribe = subscribe()
+      void loadUi()
       const id = selected()
       if (id) void refresh(id)
     })
@@ -74,7 +78,7 @@ export default Plugin.define({
         const id = selected()
         return id ? statuses()[id] : undefined
       }
-      return el("text", { fg: () => context.theme.text.base }, () => footerLabel(status(), ui.plainTextIcons))
+      return el("text", { fg: () => context.theme.text.base }, () => footerLabel(status(), ui().plainTextIcons))
     }
 
     const auditPanel = (panel: any) => {
@@ -98,41 +102,34 @@ export default Plugin.define({
       )
     }
 
+    const when = (test: () => boolean, render: () => unknown) =>
+      createComponent(Show, {
+        get when() {
+          return test()
+        },
+        get children() {
+          return render()
+        },
+      })
     const disposers: (() => void)[] = []
-    if (ui.footer) {
-      for (const slot of ["home.footer.status", "prompt.footer.status"]) disposers.push(context.ui.slot({ append: slot, render: footer }))
-    }
-    if (ui.auditPanel) {
-      disposers.push(
-        context.ui.slot({
-          append: "session.panel",
-          render: (panel: any) =>
-            createComponent(Show, {
-              get when() {
-                return panel.name === PANEL
-              },
-              get children() {
-                return auditPanel(panel)
-              },
-            }),
-        }),
-      )
-      context.keymap.layer(() => ({
-        mode: "global",
-        commands: [
-          {
-            id: "fidelis.open",
-            title: "Fidelis: show audit",
-            group: "Fidelis",
-            palette: true,
-            slash: { name: "fidelis" },
-            run: () => {
-              if (!context.ui.panel.open(PANEL)) context.ui.toast.show({ title: "Fidelis", message: "Open a session to see its audit.", variant: "info" })
-            },
+    for (const slot of ["home.footer.status", "prompt.footer.status"]) disposers.push(context.ui.slot({ append: slot, render: () => when(() => ui().enabled && ui().footer, footer) }))
+    disposers.push(context.ui.slot({ append: "session.panel", render: (panel: any) => when(() => panel.name === PANEL && ui().enabled && ui().auditPanel, () => auditPanel(panel)) }))
+    context.keymap.layer(() => ({
+      mode: "global",
+      commands: [
+        {
+          id: "fidelis.open",
+          title: "Fidelis: show audit",
+          group: "Fidelis",
+          palette: true,
+          slash: { name: "fidelis" },
+          run: () => {
+            if (!ui().enabled || !ui().auditPanel) return
+            if (!context.ui.panel.open(PANEL)) context.ui.toast.show({ title: "Fidelis", message: "Open a session to see its audit.", variant: "info" })
           },
-        ],
-      }))
-    }
+        },
+      ],
+    }))
 
     return () => {
       unsubscribe?.()

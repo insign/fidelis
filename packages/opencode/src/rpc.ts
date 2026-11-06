@@ -5,6 +5,7 @@ const anyObject = { type: "object" } as const
 export const FidelisRpc = Rpc.define({
   id: "fidelis",
   methods: {
+    ui: { input: anyObject, output: anyObject },
     status: { input: { type: "object", properties: { sessionID: { type: "string" } }, required: ["sessionID"], additionalProperties: false }, output: anyObject },
   },
   events: {

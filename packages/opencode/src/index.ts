@@ -21,7 +21,7 @@ export default Plugin.define({
     store.cleanup(config.retentionDays)
 
     // RPC output must be strict JSON: an undefined field is rejected as rpc.invalid_output.
-    const rpc = await ctx.rpc.register(FidelisRpc, { status: async (input: any) => JSON.parse(JSON.stringify(auditor.status(input.sessionID))) })
+    const rpc = await ctx.rpc.register(FidelisRpc, { ui: async () => config.ui, status: async (input: any) => JSON.parse(JSON.stringify(auditor.status(input.sessionID))) })
     const emit = (state: SessionState, transition: string) => {
       void rpc.events
         .emit("changed", { sessionID: state.sessionID, revision: state.revision, state: state.state, phase: state.phase, auditID: state.audit?.id ?? state.lastAuditID ?? null, transition, updatedAt: state.updatedAt, actionable: actionable(state.findings) })
