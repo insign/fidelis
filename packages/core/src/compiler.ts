@@ -121,7 +121,7 @@ export async function getChecklist(input: { store: Store; host: Host; sources: I
   const fingerprint = checklistFingerprint(host, sources, config, prompt)
   const cached = config.cacheChecklist ? store.getChecklist(fingerprint) : undefined
   const miss = { cacheHit: false, calls: 1, tokens: 0, costUSD: 0 }
-  if (cached?.schema === SCHEMA_VERSION) return { checklist: cached, cacheHit: true, calls: 0, tokens: 0, costUSD: 0 }
+  if (cached?.schema === SCHEMA_VERSION && cached.dropped.length === 0) return { checklist: cached, cacheHit: true, calls: 0, tokens: 0, costUSD: 0 }
   if (!generate) return { ...miss, calls: 0, reason: "No compiler model is available." }
   input.onCompile?.()
   const full = prompt + sources.map((source) => `\n--- source: ${source.path} (scope ${source.scope}) ---\n${redact(source.text)}`).join("\n")

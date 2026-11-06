@@ -45,7 +45,7 @@ export function digest(evidence: Evidence, prior: Finding[], budgetChars: number
   const historyLines: string[] = []
   let used = 0
   for (const event of [...history].reverse()) {
-    const line = eventLine(event, HISTORY_CLIP)
+    const line = eventLine(event, rawIDs.has(event.id) ? budgetChars : HISTORY_CLIP)
     if (used + line.length > budgetChars * HISTORY_SHARE) break
     used += line.length
     historyLines.unshift(line)
@@ -64,7 +64,7 @@ export function digest(evidence: Evidence, prior: Finding[], budgetChars: number
   ].filter(Boolean)
   for (const limit of CLIP_STEPS) {
     const lines = evidence.events.map((event) => eventLine(event, rawIDs.has(event.id) ? budgetChars : limit))
-    const text = [...head, ...lines, `Final reply: ${safeClip(evidence.finalReply, 8000)}`].join("\n")
+    const text = [...head, ...lines, `Final reply: ${redact(evidence.finalReply)}`].join("\n")
     if (text.length <= budgetChars) return { text, clipped: limit !== CLIP_STEPS[0] || text.includes("…[clipped"), complete }
   }
   throw new EvidenceTooLarge(`Evidence for ${evidence.events.length} events exceeds the audit budget of ${budgetChars} characters.`)
@@ -86,7 +86,7 @@ export function judgePreamble(config: Pick<Config, "judgePromptPath">) {
   return config.judgePromptPath ? readFileSync(config.judgePromptPath, "utf8") : JUDGE_PREAMBLE
 }
 
-export async function judge(input: { checklist: Checklist; evidence: Evidence; prior: Finding[]; model: DecisionModel; config: Config; overBudget?: () => boolean; onUsage?: (tokens: number, costUSD: number) => void }): Promise<JudgeResult> {
+export async function judge(input: { checklist: Checklist; evidence: Evidence; prior: Finding[]; model: DecisionModel; config: Config; stopReason?: () => string | null; onUsage?: (tokens: number, costUSD: number) => void }): Promise<JudgeResult> {
   const { checklist, evidence, prior, model, config } = input
   const budget = config.maxAuditTokens * 4
   const preamble = judgePreamble(config)
@@ -96,7 +96,8 @@ export async function judge(input: { checklist: Checklist; evidence: Evidence; p
   const ask = async (state: string, questions: Question[]) => {
     const answers: Record<string, Answer> = {}
     for (let index = 0; index < questions.length; index += CHUNK) {
-      if (input.overBudget?.()) throw new Error("the audit budget is exhausted")
+      const stop = input.stopReason?.()
+      if (stop) throw new Error(stop)
       const decisions = await withRetry(() => model.ask(state, questions.slice(index, index + CHUNK)), config)
       Object.assign(answers, decisions.answers)
       result.calls += 1
@@ -173,12 +174,13 @@ export async function judge(input: { checklist: Checklist; evidence: Evidence; p
   })
   const rechecked = new Set<number>()
   if (first.clipped && disputed.length && inTurn.length) {
-    const spans = await ask(first.text, disputed.map(({ rule, i }) => cite(`r${i}_span`, rule, "Which event's full content most directly bears on whether this rule was breached?")))
-    const raw = new Set(disputed.flatMap(({ i }) => spans[`r${i}_span`]?.choice ?? []))
+    const spans = await ask(first.text, disputed.map(({ rule, i }) => cite(`r${i}_span`, rule, "Which event's full content most directly bears on whether this rule was breached?", everywhere)))
+    const restored = disputed.filter(({ i }) => knownAnywhere.has(spans[`r${i}_span`]?.choice ?? ""))
+    const raw = new Set(restored.map(({ i }) => spans[`r${i}_span`].choice!))
     try {
-      const again = await ask(digest(evidence, prior, budget * 2, raw, preamble).text, disputed.map(({ rule, i }) => predicate(`r${i}_violated`, rule, QUESTIONS.violated)))
+      const again = await ask(digest(evidence, prior, budget * 2, raw, preamble).text, restored.map(({ rule, i }) => predicate(`r${i}_violated`, rule, QUESTIONS.violated)))
       Object.assign(verdict, again)
-      for (const { i } of disputed) rechecked.add(i)
+      for (const { i } of restored) rechecked.add(i)
     } catch (error) {
       if (!(error instanceof EvidenceTooLarge)) throw error
     }

@@ -69,7 +69,10 @@ export default Plugin.define({
       if (!boundary) return
       recordHumans(sessionID, messages)
       const covered = store.readLedger(sessionID).length > 0
+      const turn = store.read(sessionID).turn
       const retained = await retainAll(sessionID, messages)
+      // A human message arrived while gathering evidence: this snapshot belongs to a finished turn.
+      if (store.read(sessionID).turn !== turn) return
       const evidence = buildEvidence(messages, boundary, retained, covered)
       const known = nestedFor(sessionID)
       const sources = ambient.has(sessionID) ? effectiveSources(ambient.get(sessionID), messages, known) : null

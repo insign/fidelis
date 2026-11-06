@@ -54,9 +54,11 @@ export async function handleStop(input: any, env = process.env): Promise<object 
   const finalReply = input.last_assistant_message ?? ""
   settle(input.transcript_path, finalReply)
   const { parsed, evidence } = buildEvidence(input.transcript_path, finalReply)
-  // Only the newest prompt can open a turn; replaying history would outlive the bounded ID cache.
-  const newest = parsed.messages.filter((message) => message.origin === "human" || message.origin === "sdk").at(-1)
-  if (newest) auditor.userMessage(input.session_id, newest)
+  // Only the newest of each origin counts: replaying history would outlive the bounded ID cache, and a later SDK prompt must not hide a human reply.
+  const prompts = parsed.messages.filter((message) => message.origin === "human" || message.origin === "sdk")
+  const human = prompts.filter((message) => message.origin === "human").at(-1)
+  if (human) auditor.userMessage(input.session_id, human)
+  if (prompts.at(-1) && prompts.at(-1) !== human) auditor.userMessage(input.session_id, prompts.at(-1)!)
   const sources = parsed.sources.length ? parsed.sources : discoverInstructions(input.cwd, parsed.version, env)
   const outcome = await auditor.complete(input.session_id, { sources, evidence, boundaryKey: `${input.prompt_id ?? ""}:${input.stop_hook_active === true}` })
   return outputFor(outcome)

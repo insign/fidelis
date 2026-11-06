@@ -7,6 +7,7 @@ import { checklistFingerprint, getChecklist, resolveSources, validateRules } fro
 import { consentProblem, resolveConfig } from "../src/config.ts"
 import { digest, EvidenceTooLarge, judge, LEDGER_MARK } from "../src/judge.ts"
 import { transition } from "../src/machine.ts"
+import { COMPILER_PROMPT } from "../src/prompts.ts"
 import { jevNative, opencodeDecisions, parseJson, textDecisions, withRetry } from "../src/providers.ts"
 import { redact } from "../src/redact.ts"
 import { canonical, safeID, Store } from "../src/store.ts"
@@ -538,6 +539,52 @@ test("the budget stops further judge calls and counts spend from a failed pipeli
   assert.ok((outcome as any).reason.includes("budget"))
   assert.equal(calls.length, 1)
   assert.equal(s.read("s").spentUSD, 1)
+})
+
+test("an invalid span choice is not a recheck: the absence-based breach stays UNKNOWN", async () => {
+  const long = event("r", 0, { output: "x".repeat(9000) })
+  const result = await judge({ checklist: checklist([rule()]), evidence: evidence([long]), prior: [], model: scripted({ ...BREACH, absence: 0.9, cite: "r" }, { r0_span: { choice: "not-an-event" } }).model, config: config({ maxAuditTokens: 2000 }) })
+  assert.equal(result.findings[0].status, "UNKNOWN")
+})
+
+test("clipped history can be restored for a recheck", () => {
+  const old = event("h", 0, { output: `${"x".repeat(500)} APPROVED` })
+  assert.ok(!digest(evidence([event("e", 1)], { history: [old] }), [], 100_000).text.includes("APPROVED"))
+  assert.ok(digest(evidence([event("e", 1)], { history: [old] }), [], 100_000, new Set(["h"])).text.includes("APPROVED"))
+})
+
+test("the whole final reply reaches the judge, or the audit is incomplete", () => {
+  const reply = `${"x".repeat(20_000)} Which option do you want?`
+  assert.ok(digest(evidence([event("e", 0)], { finalReply: reply }), [], 48_000).text.includes("Which option"))
+  assert.throws(() => digest(evidence([event("e", 0)], { finalReply: reply }), [], 8_000), EvidenceTooLarge)
+})
+
+test("spend from a superseded audit stays on the session and stops further calls", async () => {
+  const s = store()
+  let a: Auditor
+  let calls = 0
+  const inner = scripted({ ...BREACH, cite: "e1" })
+  const model = { ...inner.model, async ask(state: string, questions: any) {
+    calls += 1
+    a.userMessage("s", { id: "late", origin: "human" })
+    return { ...(await inner.model.ask(state, questions)), costUSD: 0.25 }
+  } }
+  a = auditor(s, model).a
+  const outcome = await a.complete("s", completion())
+  assert.equal(outcome.action, "none")
+  assert.equal(calls, 1)
+  assert.equal(s.read("s").spentUSD, 0.25)
+})
+
+test("a cached checklist with rejected rules is not reused", async () => {
+  const s = store()
+  const base = config()
+  const fingerprint = checklistFingerprint("opencode", [SOURCE], base, COMPILER_PROMPT)
+  s.putChecklist({ schema: 1, fingerprint, model: "m", compiledAt: 0, rules: [], dropped: ["x"] })
+  let calls = 0
+  const result = await getChecklist({ store: s, host: "opencode", sources: [SOURCE], config: base, generate: async () => (calls++, compilerOutput) })
+  assert.equal(calls, 1)
+  assert.equal(result.cacheHit, false)
 })
 
 test("cleanup enforces retention", () => {

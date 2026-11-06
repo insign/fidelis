@@ -162,6 +162,10 @@ export class Auditor {
     )
     if (skip) return skip
 
+    // Spend is saved as it happens, so a superseded audit still counts against the session.
+    const charge = (costUSD: number) => {
+      if (costUSD) this.save(sessionID, (state) => void (state.spentUSD += costUSD), "usage")
+    }
     const metrics: AuditMetrics = { cacheHit: false, compilerCalls: 0, judgeCalls: 0, tokens: 0, costUSD: 0, latencyMs: 0, uncertain: 0 }
     const finish = (event: MachineEvent, reason: string | undefined, findings: Finding[], extra: Partial<SessionState> = {}): StateName | null => {
       metrics.latencyMs = Date.now() - started
@@ -180,7 +184,6 @@ export class Auditor {
           state.findings = findings
           state.lastAuditID = auditID
           state.boundaries = [...state.boundaries, boundaryID].slice(-MAX_TRACKED)
-          state.spentUSD += metrics.costUSD
         },
         event,
       )
@@ -222,6 +225,7 @@ export class Auditor {
     metrics.compilerCalls = compiled.calls
     metrics.tokens = compiled.tokens
     metrics.costUSD = compiled.costUSD
+    charge(compiled.costUSD)
     if (!compiled.checklist) return incomplete(compileConsent && !compiled.cacheHit ? compileConsent : (compiled.reason ?? "Checklist unavailable."))
     this.save(sessionID, (state) => void (state.phase = "judging"), "judging")
 
@@ -237,10 +241,15 @@ export class Auditor {
         prior: begin.findings.filter((finding) => finding.status === "VIOLATED"),
         model: this.o.judge,
         config,
-        overBudget: () => config.maxAuditCostUSD !== null && begin.spentUSD + metrics.costUSD >= config.maxAuditCostUSD,
+        stopReason: () => {
+          const current = store.read(sessionID)
+          if (current.audit?.id !== auditID) return "the audit was superseded by a newer turn"
+          return config.maxAuditCostUSD !== null && current.spentUSD >= config.maxAuditCostUSD ? "the audit budget is exhausted" : null
+        },
         onUsage: (tokens, costUSD) => {
           metrics.tokens += tokens
           metrics.costUSD += costUSD
+          charge(costUSD)
         },
       })
     } catch (error) {
