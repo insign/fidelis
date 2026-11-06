@@ -11,6 +11,8 @@ export interface Answer {
 export interface Decisions {
   answers: Record<string, Answer>
   tokens?: number
+  /** Input tokens of the request, when the provider reports them. Telemetry only: it arrives after the call. */
+  inputTokens?: number
   costUSD?: number
 }
 
@@ -42,6 +44,8 @@ export interface RetryOptions {
 }
 
 const HARD_FAILURE = /\b(401|403|404)\b|unauthori[sz]ed|forbidden|not found|consent|usage limit/i
+/** A context overflow repeats the same payload, so it must not be retried as it is. */
+const CONTEXT_FAILURE = /max_tokens/i
 
 /** Bounded retries with backoff and a timeout. Auth, availability and quota errors fail at once. */
 export async function withRetry<T>(run: () => Promise<T>, options: RetryOptions): Promise<T> {
@@ -61,7 +65,8 @@ export async function withRetry<T>(run: () => Promise<T>, options: RetryOptions)
       lastError = error
       const cost = (error as { costUSD?: unknown })?.costUSD
       if (typeof cost === "number" && cost > 0) options.onFailedCost?.(cost)
-      if (HARD_FAILURE.test(String((error as Error)?.message ?? error))) break
+      const message = String((error as Error)?.message ?? error)
+      if (HARD_FAILURE.test(message) || CONTEXT_FAILURE.test(message)) break
     } finally {
       clearTimeout(timer)
     }
@@ -97,7 +102,7 @@ export function opencodeDecisions(generate: (input: any) => Promise<any>, model:
         else if (answer.type === "choice") answers[answer.name] = { choice: String(answer.choice), p: answer.confidence }
         else answers[answer.name] = { error: answer.reason ?? "decision error" }
       }
-      return { answers, tokens: (result.tokens?.input ?? 0) + (result.tokens?.output ?? 0), costUSD: result.cost }
+      return { answers, tokens: (result.tokens?.input ?? 0) + (result.tokens?.output ?? 0), inputTokens: typeof result.tokens?.input === "number" ? result.tokens.input : undefined, costUSD: result.cost }
     },
   }
 }
@@ -126,7 +131,11 @@ export function jevNative(options: { apiKey: string; model?: string; endpoint?: 
         headers: { authorization: `Bearer ${options.apiKey}`, "content-type": "application/json" },
         body: JSON.stringify(body),
       })
-      if (!response.ok) throw new Error(`Jev request failed: ${response.status}`)
+      if (!response.ok) {
+        // The body carries the reason, for example max_tokens_exceeded, so the caller can react to it.
+        const detail = await response.text().catch(() => "")
+        throw new Error(`Jev request failed: ${response.status}${detail ? ` ${detail.slice(0, 500)}` : ""}`)
+      }
       const result: any = await response.json()
       const answers: Record<string, Answer> = {}
       for (const [name, answer] of Object.entries<any>(result.answers ?? {})) {
@@ -134,7 +143,7 @@ export function jevNative(options: { apiKey: string; model?: string; endpoint?: 
         else if (answer.type === "choice") answers[name] = { choice: String(answer.choice), p: answer.confidence }
         else answers[name] = { error: answer.message ?? answer.reason ?? "decision error" }
       }
-      return { answers, tokens: (result.usage?.input_tokens ?? 0) + (result.usage?.output_tokens ?? 0) }
+      return { answers, tokens: (result.usage?.input_tokens ?? 0) + (result.usage?.output_tokens ?? 0), inputTokens: typeof result.usage?.input_tokens === "number" ? result.usage.input_tokens : undefined }
     },
   }
 }

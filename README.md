@@ -67,7 +67,7 @@ Add the plugin to `opencode.json`. It loads the server and TUI parts together:
 
 Without `allowFreeModelDataUse`, the audit reports `AUDIT_INCOMPLETE` instead of sending anything to the default compiler: **Big Pickle is free for a limited time and its submitted data may be used to improve the model**. Either consent as above, or name other models in `compilerModel` and `judgeModel`. Fidelis never switches to another model on its own.
 
-The footer shows the current state. Type `/fidelis` in a session for its audit history.
+The footer uses compact labels such as `🛡️ idle`, `🔍 audit`, `🔧 fix`, `✅ OK`, and `⏸️ wait`. Type `/fidelis` in a session for the full state and audit history.
 
 ## Install on Claude Code
 
@@ -96,7 +96,7 @@ Pass options through the OpenCode plugin entry, or put them in `~/.claude/fideli
 | `compilerPromptPath`, `judgePromptPath` | `null` | Replace a built-in prompt. Part of the matching cache key. A compiler prompt must keep the JSON shape, including `confidence` |
 | `maxCorrections` | `3` | Corrections per turn before `STOPPED` |
 | `minViolationConfidence` | `0.9` | Threshold to act on a violation |
-| `maxAuditTokens` | `12000` | Evidence budget. Over budget is `AUDIT_INCOMPLETE`, never silent truncation |
+| `maxAuditTokens` | `12000` | Digest character budget is this value × 4; Jev 1.13 also reserves room for questions. Evidence that cannot fit yields `AUDIT_INCOMPLETE`, never silent truncation |
 | `maxAuditCostUSD` | `null` | Per-session spend limit, when the provider reports cost |
 | `cacheChecklist` | `true` | Reuse compiled checklists across sessions |
 | `storeRawTranscript` | `false` | Keep unclipped evidence in the local ledger |
@@ -114,6 +114,14 @@ Pass options through the OpenCode plugin entry, or put them in `~/.claude/fideli
 On Claude Code, a judge model whose name starts with `jev` uses the native TypeSafe API and requires `TYPESAFE_API_KEY`. Otherwise judging uses Haiku, whose numbers are labeled `self-reported` and are not Jev probabilities.
 
 State lives in `$FIDELIS_HOME`, or the OS cache directory (`~/.cache/fidelis`, `~/Library/Caches/fidelis`, `%LOCALAPPDATA%\fidelis`), with private permissions. Common secret shapes are redacted before anything is stored or sent.
+
+### Evidence and context budgeting
+
+The judge audits the current turn, with a limited share of earlier events as context—not the entire raw conversation. Thinking/reasoning parts are not collected. Each recorded event keeps its ID and one physical line; embedded line breaks are escaped, secrets are redacted before clipping, and omitted content is marked explicitly. The final reply is kept whole or the audit is incomplete. No LLM summary replaces the evidence.
+
+Jev 1.13 accepts about 32k tokens for state plus one question and 64k for state plus all questions in a request. Fidelis packs requests to operational estimates of **25,600 per question** and **51,200 per request**, counting the state in both. The estimate uses two characters per token plus question/option overhead; it is not a tokenizer guarantee. Other models retain their existing batching behavior. Provider-reported `inputTokens`, when available, is post-call telemetry, not permission to enlarge the budget.
+
+Citation descriptions are short locators. A question lists up to 250 recent eligible events, shrinking the window to fit the full estimated question cost; excluded events are declared and the judge may choose “none.” Invalid or unsupported citations stay `UNKNOWN`. Raw-span rechecks must fit the same context limits; unavailable evidence cannot prove absence. A recognized `max_tokens_exceeded` splits the batch without retrying the unchanged payload; an indivisible oversized question stays uncertain rather than passing silently. Long-context mode is not enabled.
 
 ## Known limits
 

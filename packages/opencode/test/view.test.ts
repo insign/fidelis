@@ -5,28 +5,31 @@ import { footerKey, footerLabel, panelLines, shouldApply, toastFor } from "../sr
 const status = (state: string, extra = {}) => ({ sessionID: "s", state, revision: 1, updatedAt: Date.now(), ...extra })
 
 test("footer labels follow the shared state machine", () => {
-  assert.equal(footerLabel(undefined), "🛡️ Fidelis")
-  assert.equal(footerLabel(status("READY")), "🛡️ Fidelis")
-  assert.equal(footerLabel(status("AUDITING", { phase: "compiling" })), "🛡️ Compiling")
-  assert.equal(footerLabel(status("RUNNING")), "🛡️ Monitoring")
-  assert.equal(footerLabel(status("AUDITING")), "🔍 Auditing")
-  assert.equal(footerLabel(status("CORRECTING")), "🔧 Correcting")
-  assert.equal(footerLabel(status("APPROVED")), "✅ Approved")
-  assert.equal(footerLabel(status("WAITING_USER")), "⏸️ Waiting for user")
-  assert.equal(footerLabel(status("WAITING_USER", { actionable: 1 })), "⚠️ Violations")
-  assert.equal(footerLabel(status("AUDIT_INCOMPLETE")), "⚠️ Audit incomplete")
-  assert.equal(footerLabel(status("STOPPED")), "⛔ Stopped")
+  assert.equal(footerLabel(undefined), "🛡️ idle")
+  assert.equal(footerLabel(status("READY")), "🛡️ idle")
+  assert.equal(footerLabel(status("AUDITING", { phase: "compiling" })), "🛡️ compile")
+  assert.equal(footerLabel(status("RUNNING")), "🛡️ idle")
+  assert.equal(footerLabel(status("AUDITING")), "🔍 audit")
+  assert.equal(footerLabel(status("CORRECTING")), "🔧 fix")
+  assert.equal(footerLabel(status("APPROVED")), "✅ OK")
+  assert.equal(footerLabel(status("WAITING_USER")), "⏸️ wait")
+  assert.equal(footerLabel(status("WAITING_USER", { actionable: 1 })), "⚠️ issues")
+  assert.equal(footerLabel(status("AUDIT_INCOMPLETE")), "⚠️ unknown")
+  assert.equal(footerLabel(status("STOPPED")), "⛔ stop")
 })
 
 test("plain text labels carry no emoji", () => {
   for (const state of ["READY", "RUNNING", "AUDITING", "CORRECTING", "APPROVED", "WAITING_USER", "AUDIT_INCOMPLETE", "STOPPED"]) {
-    assert.match(footerLabel(status(state), true), /^[\x20-\x7e]+$/)
+    const plain = footerLabel(status(state), true)
+    assert.match(plain, /^[\x20-\x7e]+$/)
+    assert.equal(plain.split(" ").at(-1), footerLabel(status(state)).split(" ").at(-1))
+    assert.ok(plain.split(" ").at(-1)!.length <= 7)
   }
 })
 
 test("incomplete or unknown never reads as approved", () => {
   assert.equal(footerKey(status("AUDIT_INCOMPLETE")), "incomplete")
-  assert.notEqual(footerLabel(status("AUDIT_INCOMPLETE")), "✅ Approved")
+  assert.notEqual(footerLabel(status("AUDIT_INCOMPLETE")), "✅ OK")
 })
 
 test("a dead audit does not spin forever", () => {

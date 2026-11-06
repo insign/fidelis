@@ -23,16 +23,16 @@ export interface UiOptions {
 export const UI_DEFAULTS: UiOptions = { enabled: true, footer: true, notifications: "important", auditPanel: true, plainTextIcons: false }
 
 const LABELS: Record<string, [string, string]> = {
-  idle: ["🛡️ Fidelis", "[F] Fidelis"],
-  compiling: ["🛡️ Compiling", "[F] Compiling"],
-  monitoring: ["🛡️ Monitoring", "[F] Monitoring"],
-  auditing: ["🔍 Auditing", "[F] Auditing"],
-  correcting: ["🔧 Correcting", "[F] Correcting"],
-  approved: ["✅ Approved", "[F] Approved"],
-  violations: ["⚠️ Violations", "[!] Violations"],
-  waiting: ["⏸️ Waiting for user", "[F] Waiting for user"],
-  incomplete: ["⚠️ Audit incomplete", "[!] Audit incomplete"],
-  stopped: ["⛔ Stopped", "[X] Stopped"],
+  idle: ["🛡️ idle", "[F] idle"],
+  compiling: ["🛡️ compile", "[F] compile"],
+  monitoring: ["🛡️ idle", "[F] idle"],
+  auditing: ["🔍 audit", "[F] audit"],
+  correcting: ["🔧 fix", "[F] fix"],
+  approved: ["✅ OK", "[F] OK"],
+  violations: ["⚠️ issues", "[!] issues"],
+  waiting: ["⏸️ wait", "[F] wait"],
+  incomplete: ["⚠️ unknown", "[!] unknown"],
+  stopped: ["⛔ stop", "[X] stop"],
 }
 
 const STALE_AUDIT_MS = 15 * 60_000
