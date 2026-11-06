@@ -202,7 +202,7 @@ Each milestone must have tests and an independently reviewable commit. Do not ad
 3. **Judge pipeline:** batched model predicates, result mapping, evidence-based findings, uncertainty policy, deterministic correction routing, replay fixtures.
 4. **OpenCode v2 adapter:** actual plugin loading/config, completion recognition, transcript extraction, correction delivery, human-origin gating and live integration tests.
 5. **Claude Code adapter:** hook installer/config, Stop continuation, transcript replay, user waits, host loop guards and live integration tests. Include direct/native AGENTS.md loading without InstructionsLoaded, CLAUDE.md override settings, and nested/imported-rule fixtures.
-6. **Polish/release:** documented configuration and prompts, error reporting, portable file locations, cleanup, reproducible tests, npm workspace/package metadata and a validated release workflow. Bootstrap each public scoped npm package with an explicitly authorized first publish, then configure and validate **npm Trusted Publishing via GitHub Actions OIDC** for subsequent releases. See §14. Do not publish without the maintainer's explicit approval.
+6. **Polish/release and TUI feedback:** documented configuration and prompts, error reporting, portable file locations, cleanup, reproducible tests, npm workspace/package metadata, **OpenCode v2 TUI status/toasts/session audit panel**, and a validated release workflow. Implement TUI observability against the shared state machine with independent UI tests (see §15), without coupling compliance decisions to a graphical interface. Bootstrap each public scoped npm package with an explicitly authorized first publish, then configure and validate **npm Trusted Publishing via GitHub Actions OIDC** for subsequent releases. See §14. Do not publish without the maintainer's explicit approval.
 
 Start by reproducing an OpenCode v2 turn end and a Claude Code `Stop` cycle in small test harnesses. If host behavior differs from this design, update the adapter and tests rather than weakening the shared invariants. Prefer **OpenCode v2 as the first end-to-end integration** while keeping the core harness-neutral.
 
@@ -236,6 +236,10 @@ At minimum, deterministic fixtures plus at least one live smoke run per supporte
 | Jev native noul versus OpenCode predicate transport | Typed adapter converts correctly, no guessed API format |
 | Synthetic prompt or automated correction reported as human input | WAITING_USER stays locked |
 | Model unavailable or no user authorization for sending sensitive rules | Explicit incomplete audit or consent action; no silent paid fallback |
+| OpenCode TUI while checklist compiles or judge runs | Session-specific, reactive visible Fidelis status updates without blocking agent or rendering fake success |
+| OpenCode TUI for violations, waiting, failures | One deduplicated notification per meaningful transition; no repeated toast on reload |
+| OpenCode /fidelis command and session panel | Shows current state and evidence-backed audit history for selected session; no secrets or raw transcript by default |
+| TUI absent, remote, disconnected or resized | Core audit works unchanged; UI recovers state, cleans up listeners and fits narrow terminals |
 
 Instrument per-session calls, input/output tokens, latency, cache hit rate, judge uncertainty, false positives, repair success and cost per approved task. Measure false positives and false negatives on a labeled set of real instruction-following violations before enabling aggressive automation. Never present a model-derived percentage as a validated accuracy metric without ground truth.
 
@@ -266,6 +270,8 @@ No CI security enforcement, no generalized permission firewall, no fine-grained 
 | **P1** | [Claude Code: Model configuration](https://code.claude.com/docs/en/model-config) | Haiku 5.5 selection and `xhigh` effort, overrides, caps and supported invocation forms; no unverified inheritance to nested processes. |
 | **P1** | [Anthropic API: Effort](https://platform.claude.com/docs/en/build-with-claude/effort) | Effort request compatibility when calling Haiku outside the interactive Claude Code CLI. |
 | **P1** | [OpenCode v2: Plugin packaging](https://opencode.ai/v2/docs/build/plugins/) | Exports, package layout, `@opencode/plugin` compatibility, `plugins` configuration and publication approach. |
+| **P1** | [OpenCode v2: TUI plugin SDK](https://opencode.ai/v2/docs/build/plugins/cli/) | `./tui`, `@opencode/plugin/tui`, `home.footer.status`, `session.panel`, slash commands, toast API, theme tokens, UI reactivity, remote operation and cleanup. |
+| **P1** | [OpenCode v2: RPC plugin API](https://opencode.ai/v2/docs/build/plugins/rpc/) | Strongly typed server-TUI state/event bridge, session-scoped status queries, event subscriptions, disconnect/resync and no polling when event updates suffice. |
 | **P1** | [Claude Code: Plugin manifest reference](https://code.claude.com/docs/en/plugins-reference) | `.claude-plugin/plugin.json`, hook packaging, installed path resolution, user config and plugin validation. |
 | **P2** | [OpenCode v1 to v2 migration guide](https://opencode.ai/v2/docs/build/plugins/migrate-v1) | Why v1 hooks/exports are incompatible and which legacy examples must **not** be copied. |
 | **P2, release only** | [npm: Public scoped packages](https://docs.npmjs.com/creating-and-publishing-scoped-public-packages/) | Owning `@insign` or the eventual scope, public package access, authentication and first publication. No pre-registration is needed while only designing. |
@@ -351,5 +357,69 @@ With successful trusted publishing, **OIDC supplies temporary credentials automa
 - Publish each package's version and dependency graph deliberately: dependencies must be available before dependent adapters. A GitHub monorepo and one workflow can publish multiple packages, but trusted publisher entries remain **per npm package**.
 - Document manual bootstrap, OIDC enrollment, a rollback/remediation process for failed releases, dependency install auth and configuration-expiry recovery.
 - Re-check [npm trusted publishing](https://docs.npmjs.com/trusted-publishers/) before the first release: eligibility, allowed actions, Node/npm versions and expiry behavior can change.
+
+## 15. User feedback: OpenCode v2 TUI (release milestone)
+
+**Goal:** make Fidelis' background work visible without dumping `console.log` output into the terminal, inserting synthetic user-facing chat messages merely for progress, or slowing the main coding agent. This is **presentation only**: auditing, evidence, states, decisions and correction policy remain functional in headless/remote environments and in Claude Code without a TUI.
+
+### 15.1 Native integration and UI topology
+
+Implement a **TUI plugin part** beside the OpenCode v2 server plugin, within the existing `@insign/fidelis-opencode` package. Follow the current [OpenCode v2 TUI SDK](https://opencode.ai/v2/docs/build/plugins/cli/) and [plugin packaging](https://opencode.ai/v2/docs/build/plugins/): expose a `./tui` entry using `@opencode/plugin/tui`, with any required OpenTUI/Solid peer dependencies. A package exporting both server and TUI parts is loaded through the regular `opencode.json(c)` plugin configuration; reserve `cli.json` for **TUI-only** packages rather than mistakenly requiring duplicate installation.
+
+Use **`context.ui.slot({ append: "home.footer.status", ... })`** to contribute a compact indicator to the existing footer row without replacing or modifying OpenCode's built-in footer. Add a `context.keymap.layer(...)` slash command **`/fidelis`** (and palette entry) to open a **`session.panel`** view named `fidelis.audit` through **`context.ui.panel.open("fidelis.audit")`**. Render the current session's status, audit history, evidence references, cache/compiler status, and remediation outcome. Use documented slots, semantic theme tokens and reactive state rather than writing to stdout or monkey-patching TUI internals. Commands must not alter any agent's prompt or change audit semantics.
+
+Server and TUI can run in different processes or even on different machines. **The audit state lives in the core/server, never solely in the TUI.** Expose a versioned, typed, **read-only status query plus session-scoped status-change events** using the OpenCode v2 [RPC plugin API](https://opencode.ai/v2/docs/build/plugins/rpc/) where supported. The TUI uses `context.client.rpc(...)` to subscribe and obtain the current snapshot on launch/reconnect; event streams are live-only, so fetch a fresh snapshot after connecting and reconcile event versions to avoid missed transitions. Include `sessionID`, `auditID`, `state`, `updatedAt` and a monotonically increasing revision in the internal contract. Filter events by project/location and session; never display one session's details in another. For errors or unsupported RPC in a target version, use a documented supported fallback, report the limitation, and **do not create hidden filesystem polling loops**.
+
+### 15.2 Visual state specification
+
+Use one compact, screen-reader-friendly icon **plus text**. Emoji display can vary by terminal, so provide a plain-text fallback and avoid requiring animation, colour alone, or special glyph widths.
+
+| Core/session condition | Proposed footer label | Notifications |
+| --- | --- | --- |
+| `READY` / idle | `🛡️ Fidelis · Ready` (or minimal `🛡️ Fidelis`) | None |
+| Checklist compilation in progress | `🛡️ Compiling` | None |
+| `RUNNING` (main agent doing work) | `🛡️ Monitoring` or minimal idle label | None |
+| `AUDITING` (decision judge active) | `🔍 Auditing` | None |
+| `CORRECTING` | `🔧 Correcting` | None unless the user must know |
+| `APPROVED` | `✅ Approved` | Optional subtle success; off by default |
+| Proven violations requiring attention | `⚠️ Violations` | One warning toast for new actionable findings |
+| `WAITING_USER` | `⏸️ Waiting for user` | One attention toast only if useful; never auto-resume |
+| `AUDIT_INCOMPLETE` / `STOPPED` | `⚠️ Audit incomplete` / `⛔ Stopped` | One error toast with actionable non-sensitive reason |
+
+`Compiling` is a **UI phase**, not a replacement for persisted core states (`READY`, `RUNNING`, etc.). Show a precise phase as the compiler call begins/ends; never interpret a cache hit as newly compiled work. `Violations` is a derived indicator from evidence-backed findings, **not** a new terminal core state or an accusation based on `PENDING` obligations. The UI never says `Approved` when verdicts are unknown or auditing has failed. Show the selected session's state; if no session is active, use a neutral idle state. Avoid endless spinners for expired/dead sessions.
+
+### 15.3 Notifications, panel and configuration
+
+Use documented **`context.ui.toast.show({ title, message, variant, duration })`** for discrete, meaningful transitions only: confirmed actionable violation, `WAITING_USER` requiring attention, timeout/provider error, or correction exhausted. Deduplicate by `sessionID + auditID + transition`; rate-limit repeated warnings after reloads and across multiple TUI instances, with server-backed event identity where possible. Avoid revealing proprietary instructions, prompts, source snippets, paths or API keys in toasts. Detailed evidence belongs in the opted-in `/fidelis` panel, with redaction and optional explicit expansion.
+
+The `/fidelis` panel should be **read-only by default** and display latest audit result and earlier corrections with their timestamps, rule IDs, `SATISFIED/VIOLATED/UNKNOWN/PENDING` statuses, cited evidence IDs, explanation, safe/unsafe-to-repair reason and whether user input is needed. It must not imply that simply viewing a report approved the work. The panel must handle empty history, audit errors, narrow terminal widths, remote servers, session switches and plugin reload without leaking one session's audit to another. Avoid unbounded rendering of raw transcripts.
+
+Document configurable presentation choices, for example:
+
+```json
+{
+  "ui": {
+    "enabled": true,
+    "footer": true,
+    "notifications": "important",
+    "auditPanel": true,
+    "plainTextIcons": false
+  }
+}
+```
+
+These field names and values are **proposals** to be stabilized during implementation. `notifications: "important"` suppresses repetitive progress toasts. Setting `ui.enabled: false` must not disable compliance auditing. Users may configure this through supported OpenCode plugin options, with built-in defaults; do not require additional files unless desired.
+
+### 15.4 Verification and quality gates
+
+1. Confirm the installed OpenCode version actually loads `./tui` from the same published plugin package alongside its server part. Test a packed npm tarball, not only a symlinked workspace.
+2. In a real TUI session, verify footer slot visibility and reactive transitions (`Compiling`, `Auditing`, `Correcting`, `Approved`, `Waiting`, `Incomplete`) from actual server state and that the normal OpenCode footer remains intact.
+3. Verify `/fidelis` works from a session and shows the correct audit trail; handle a command invoked outside a session gracefully. Test a narrow terminal, text-only icons and keyboard navigation.
+4. Verify no progress output pollutes the chat or terminal stdout, no extra tool/model call is made only to update the UI, and UI subscriptions do not block the main agent's work.
+5. Test error and recovery cases: duplicated/reordered status events, reconnect and missed events, multiple TUI clients, switching sessions, server process restart, plugin reload/disposal, orphaned audit, and no active session. All event handlers and timers must be disposed on unload.
+6. Verify toasts fire **at most once** per actionable transition, never for mere `PENDING` obligations; sensitive content is not displayed by default. Success notifications remain optional.
+7. Confirm **headless OpenCode and Claude Code** still audit and correct normally if the TUI part is absent, disabled or fails to load.
+
+This UI work is part of **milestone 6** and requires its own integration evidence. It is **not** a prerequisite to proving the core audit loop or OpenCode server adapter. Do not claim TUI support without testing against the installed SDK version.
 
 **Definition of done:** Both supported hosts can audit a finished unit against effective instructions, provide specific evidence-backed findings, request bounded safe corrections, respect real user waits, and persist/recover state. A README, scaffolding, or untested example is not a functional release.
