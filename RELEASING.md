@@ -46,7 +46,7 @@ On npmjs.com, open each package, then Settings, then Trusted publishing, and add
 | Workflow filename | `publish.yml` (filename only) |
 | Environment | `npm-publish` |
 
-Allow direct `npm publish` if npm offers that choice. Create the `npm-publish` environment in the GitHub repository, with required reviewers.
+Allow direct `npm publish` if npm offers that choice. GitHub creates the `npm-publish` environment on first use. Required reviewers are optional: the workflow already runs only by manual dispatch from `main`.
 
 Run one real publish through the workflow within two days of registering each publisher; npm's registration expires otherwise. If it expires, delete and recreate it. `npm whoami` does not test trusted publishing.
 

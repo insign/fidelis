@@ -1,6 +1,6 @@
 {
   "name": "fidelis-opencode",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Fidelis OpenCode v2 plugin: audits finished turns against loaded AGENTS.md rules, with TUI status and bounded corrections.",
   "type": "module",
   "license": "MIT",
@@ -22,7 +22,7 @@
     "access": "public"
   },
   "dependencies": {
-    "fidelis": "0.1.1",
+    "fidelis": "0.1.2",
     "@opencode/plugin": ">=2.2.5"
   },
   "peerDependencies": {
