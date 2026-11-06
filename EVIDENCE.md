@@ -70,7 +70,7 @@ In an earlier full TUI run with model calls, one violation toast was observed an
 
 ## Independent review
 
-Three judged rounds with helpers outside the Claude family found one critical issue, a long private key surviving redaction because text was clipped first, and 22 other accepted issues, all fixed with tests. A fourth regression-only round was skipped at the maintainer's request to publish, so the last fixes have unit tests but no independent re-review and no live OpenCode or TUI rerun.
+Three judged rounds with helpers outside the Claude family found one critical issue, a long private key surviving redaction because text was clipped first, and 22 other accepted issues, all fixed with tests. A fourth regression-only round was skipped at the maintainer's request to publish, so the last fixes have unit tests but no independent re-review and no live OpenCode or TUI rerun. That round still ran and its one accepted finding, a restored history span that could be left out of a recheck, is fixed after 0.1.1, for the next release.
 
 Known residual risk: if a server restart coincides with a compaction inside a turn, an older user message can anchor that turn's evidence window.
 
@@ -80,7 +80,8 @@ Known residual risk: if a server restart coincides with a compaction inside a tu
 - **A final full OpenCode run** after the last fixes, for the same reason. Run `npm run test:live:opencode`.
 - **Mid-turn compaction, live.** The ledger is covered by fixtures only.
 - **A running TUI across a server reconnect, and several TUI clients at once.** A fresh TUI after a server restart was tested. The reconnect handler and shared toast dedupe were not.
-- **Windows and macOS.** The hook launcher and paths have not run there. `ci.yml` covers them once pushed; path-shape and file-mode tests are skipped on Windows.
+- **Windows and macOS with real hosts.** Unit tests pass in CI on Linux, macOS and Windows, with path-shape and file-mode tests skipped on Windows. The hook launcher has not run against a real host on either system.
 - **The native TypeSafe endpoint** `api.typesafe.ai`, for lack of a key. The same protocol was exercised through OpenCode's endpoint.
-- **npm publication and OIDC.** `publish.yml` has never run. Nothing has been published.
+- **OIDC publication.** Version 0.1.1 was published by hand. `publish.yml` has never run, and no trusted publisher is configured yet.
+- **The published 0.1.1 inside a real host.** Clean npm installs were tested, and earlier tarballs ran in OpenCode, but this exact version was not loaded in OpenCode or Claude Code from npm.
 - **Accuracy.** False positive and false negative rates are unmeasured, because no labeled set of real violations exists. Audit records hold calls, tokens, cost, latency, cache hits and uncertain counts for that future measurement.
