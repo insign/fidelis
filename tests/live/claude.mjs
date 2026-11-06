@@ -93,19 +93,22 @@ check("SDK-origin turn does not release the wait", state(resumed.session_id).sta
 
 // 5. A real human reply, typed in an interactive terminal, releases the wait exactly once.
 const humans = state(asked.session_id).humanIDs.length
-const term = spawn("script", ["-qfec", `stty rows 40 cols 120; exec claude --resume ${asked.session_id} --model claude-haiku-5-5 --effort low --setting-sources project --plugin-dir ${join(repo, "packages/claude-code")}`, "/dev/null"], { cwd: asker, env: { ...env, PWD: asker }, stdio: ["pipe", "pipe", "ignore"] })
+// An inherited child-session marker turns transcript saving off, which would hide the reply from any audit.
+const { CLAUDE_CODE_CHILD_SESSION: _marker, ...termEnv } = env
+const term = spawn("script", ["-qfec", `stty rows 40 cols 120; exec claude --resume ${asked.session_id} --model claude-haiku-5-5 --effort low --setting-sources project --plugin-dir ${join(repo, "packages/claude-code")}`, "/dev/null"], { cwd: asker, env: { ...termEnv, PWD: asker, TERM: "xterm-256color" }, stdio: ["pipe", "pipe", "ignore"] })
 let screen = ""
 term.stdout.on("data", (chunk) => (screen += chunk))
 await delay(6000)
 // Accept the folder trust dialog for this throwaway fixture if it appears. "No, exit" is preselected.
-if (/trust this folder/i.test(screen)) {
+const visible = () => screen.replace(/\x1b\[[0-9;?<>=]*[ -/]*[@-~]/g, " ").replace(/\s+/g, " ")
+if (/trust this folder/i.test(visible())) {
   term.stdin.write("\x1b[B")
-  await delay(500)
+  await delay(1200)
   term.stdin.write("\r")
-  await delay(4000)
+  await delay(5000)
 }
 term.stdin.write("Use spaces, thanks. Do not create any file; just confirm.")
-await delay(800)
+await delay(1200)
 term.stdin.write("\r")
 const replied = await until(() => {
   const current = state(asked.session_id)

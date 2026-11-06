@@ -20,7 +20,8 @@ export default Plugin.define({
     const store = new Store("opencode")
     store.cleanup(config.retentionDays)
 
-    const rpc = await ctx.rpc.register(FidelisRpc, { status: async (input: any) => auditor.status(input.sessionID) })
+    // RPC output must be strict JSON: an undefined field is rejected as rpc.invalid_output.
+    const rpc = await ctx.rpc.register(FidelisRpc, { status: async (input: any) => JSON.parse(JSON.stringify(auditor.status(input.sessionID))) })
     const emit = (state: SessionState, transition: string) => {
       void rpc.events
         .emit("changed", { sessionID: state.sessionID, revision: state.revision, state: state.state, phase: state.phase, auditID: state.audit?.id ?? state.lastAuditID ?? null, transition, updatedAt: state.updatedAt, actionable: actionable(state.findings) })
@@ -95,15 +96,20 @@ export default Plugin.define({
 
     const abort = new AbortController()
     void (async () => {
-      for await (const event of ctx.event.subscribe({ signal: abort.signal, types: ["session.execution.started", "session.execution.succeeded", "session.deleted"] }) as AsyncIterable<any>) {
+      for await (const event of ctx.event.subscribe({ signal: abort.signal, types: ["session.inbox.delivered", "session.execution.succeeded", "session.execution.failed", "session.execution.interrupted", "session.deleted"] }) as AsyncIterable<any>) {
         const sessionID = event.data?.sessionID
         if (!sessionID || temp.has(sessionID)) continue
         if (event.type === "session.execution.succeeded") enqueue(sessionID, () => onCompleted(sessionID))
-        else if (event.type === "session.execution.started")
+        // Delivered, not started: the new message is not in the session context until then.
+        else if (event.type === "session.inbox.delivered")
           enqueue(sessionID, async () => {
             if (await owned(sessionID)) recordHumans(sessionID, await context(sessionID))
           })
-        else for (const map of [ambient, nested]) map.delete(sessionID)
+        else if (event.type === "session.deleted") for (const map of [ambient, nested]) map.delete(sessionID)
+        else
+          enqueue(sessionID, async () => {
+            if (await owned(sessionID)) auditor.executionEnded(sessionID)
+          })
       }
     })().catch((error) => {
       if (!abort.signal.aborted) console.error(`${FIDELIS_MARKER} event stream ended: ${String(error?.message ?? error)}`)

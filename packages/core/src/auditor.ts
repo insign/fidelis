@@ -90,6 +90,14 @@ export class Auditor {
     return true
   }
 
+  /** A turn that failed or was interrupted has no completed boundary to audit: nothing is running any more. */
+  executionEnded(sessionID: string) {
+    if (this.o.store.read(sessionID).state !== "RUNNING") return
+    this.save(sessionID, (state) => {
+      if (state.state === "RUNNING") state.state = "READY"
+    }, "ended")
+  }
+
   /** Merge host events with the ledger so compaction cannot erase evidence the audit still needs. */
   retain(sessionID: string, events: ExecEvent[]): ExecEvent[] {
     const store = this.o.store

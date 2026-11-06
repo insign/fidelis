@@ -353,6 +353,17 @@ test("no consent: default data-sharing model gets nothing, no paid fallback", as
   assert.equal(consentProblem("opencode/big-pickle", named, resolveConfig("opencode", named)), null)
 })
 
+test("a failed turn leaves no stale RUNNING and never releases a wait", () => {
+  const s = store()
+  const { a } = auditor(s, scripted(CLEAN).model)
+  a.userMessage("s", { id: "u", origin: "human" })
+  a.executionEnded("s")
+  assert.equal(s.read("s").state, "READY")
+  s.update("s", (state) => void (state.state = "WAITING_USER"))
+  a.executionEnded("s")
+  assert.equal(s.read("s").state, "WAITING_USER")
+})
+
 test("unobservable instructions are incomplete, not vacuously approved", async () => {
   const s = store()
   const { model, calls } = scripted(CLEAN)
