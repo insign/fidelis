@@ -115,9 +115,10 @@ export default Plugin.define({
       if (known.size) store.writeNested(sessionID, Object.fromEntries(known))
       const outcome = await auditor.complete(sessionID, { sources, evidence, boundaryKey: boundary.key })
       submitted.set(sessionID, boundary.key)
-      // Drop only the gaps this audit actually delivered: a concurrent compaction may have added new ones, and a
-      // superseded or duplicate audit never reached the judge, so its gaps stay pending.
-      const settled = (outcome as { duplicate?: boolean }).duplicate !== true && store.read(sessionID).turn === turn
+      // Drop only the gaps this audit actually put in front of the judge: a skipped, duplicated, superseded or
+      // unjudged outcome never read them, and the child metadata may already be gone.
+      const judged = (store.audits(sessionID, 1)[0]?.metrics?.judgeCalls ?? 0) > 0
+      const settled = (outcome as { duplicate?: boolean }).duplicate !== true && outcome.state !== "AUDIT_INCOMPLETE" && judged && store.read(sessionID).turn === turn
       if (settled && pending.length) {
         const left = pendingGaps(store.read(sessionID))
         for (const gap of pending) {
