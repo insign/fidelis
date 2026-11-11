@@ -1,0 +1,24 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "bootstrap-sha": "7d462f6f4813721712ae2d3973fc829ea253c907",
+  "include-component-in-tag": false,
+  "bump-minor-pre-major": true,
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "extra-files": [
+        { "type": "json", "path": "packages/core/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "packages/claude-code/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "packages/claude-code/package.json", "jsonpath": "$.dependencies.fidelis" },
+        { "type": "json", "path": "packages/opencode/package.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "packages/opencode/package.json", "jsonpath": "$.dependencies.fidelis" },
+        { "type": "json", "path": "packages/claude-code/.claude-plugin/plugin.json", "jsonpath": "$.version" },
+        { "type": "json", "path": "package-lock.json", "jsonpath": "$.packages['packages/core'].version" },
+        { "type": "json", "path": "package-lock.json", "jsonpath": "$.packages['packages/claude-code'].version" },
+        { "type": "json", "path": "package-lock.json", "jsonpath": "$.packages['packages/claude-code'].dependencies.fidelis" },
+        { "type": "json", "path": "package-lock.json", "jsonpath": "$.packages['packages/opencode'].version" },
+        { "type": "json", "path": "package-lock.json", "jsonpath": "$.packages['packages/opencode'].dependencies.fidelis" }
+      ]
+    }
+  }
+}

@@ -1,8 +1,9 @@
-# Publishes to npm when a GitHub release is published, or by manual dispatch from main. See RELEASING.md.
-name: Publish
+# Release Please keeps a release pull request open on main. Merging it tags the release and publishes to npm.
+# Manual dispatch from main publishes whatever is not on npm yet. See RELEASING.md.
+name: Release
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       packages:
@@ -12,9 +13,26 @@ on:
 permissions:
   contents: read
 jobs:
+  release-please:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
   publish:
-    # A pre-release publishes nothing: npm would make it the default install.
-    if: (github.event_name == 'release' && !github.event.release.prerelease) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    needs: release-please
+    # A manual dispatch skips the release-please job, which would otherwise skip this one too.
+    if: ${{ !cancelled() && ((github.event_name == 'push' && needs.release-please.outputs.release_created == 'true') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')) }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
@@ -22,31 +40,28 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-        with:
-          fetch-depth: 0
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false
-      - name: Check that the release is on main and matches every package version
-        if: github.event_name == 'release'
+      - name: Check that every package carries the released version
+        if: github.event_name == 'push'
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          VERSION: ${{ needs.release-please.outputs.version }}
         run: |
-          git merge-base --is-ancestor HEAD origin/main || { echo "Release $TAG is not on main"; exit 1; }
           node -e '
             for (const dir of ["core", "claude-code", "opencode"]) {
               const { name, version } = require(`./packages/${dir}/package.json`)
-              if (process.env.TAG !== `v${version}`) {
-                console.error(`${name} is ${version}, but the release is ${process.env.TAG}`)
+              if (version !== process.env.VERSION) {
+                console.error(`${name} is ${version}, but the release is ${process.env.VERSION}`)
                 process.exit(1)
               }
             }'
       - run: node --version && npm --version
       - run: npm ci
       - run: npm test
-      - name: Publish approved workspaces
+      - name: Publish workspaces not on npm yet
         env:
           PACKAGES: ${{ inputs.packages || 'fidelis fidelis-claude-code fidelis-opencode' }}
         run: |

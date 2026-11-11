@@ -6,7 +6,7 @@ Fidelis is an open-source, harness-agnostic plugin for AI coding agents. When th
 
 The focus is **behavioral compliance**: skipping a required step, editing outside the requested scope, committing at the wrong point, or ignoring a stop condition.
 
-> **Status:** 0.2.0 replaces the external audit pipeline of 0.1.x with the self-review below. It is not published to npm yet. [EVIDENCE.md](EVIDENCE.md) lists what was tested and what was not.
+> **Status:** from 0.2.0 on, the self-review below replaces the external audit pipeline of 0.1.x. [EVIDENCE.md](EVIDENCE.md) lists what was tested and what was not.
 
 ## The review
 
@@ -84,7 +84,7 @@ There is none. To turn Fidelis off, uninstall the hook or remove the plugin entr
 ## Upgrading from 0.1.x
 
 - The compiler, judge, state machine, OpenCode footer and `/fidelis` panel are gone. Their options (`judgeModel`, `maxCorrections`, `ui` and the rest) are ignored, and `~/.claude/fidelis.json` is no longer read.
-- Run `fidelis-claude-code install` again: it replaces the old `Stop` hook and removes the old `SessionStart` hook.
+- Run `fidelis-claude-code install` again: it replaces the old `Stop` hook and removes the old `SessionStart` hook. The `status` command is gone.
 - Earlier versions kept audit state in `$FIDELIS_HOME` or the OS cache directory (`~/.cache/fidelis`, `~/Library/Caches/fidelis`, `%LOCALAPPDATA%\fidelis`). Nothing reads it any more, so it can be deleted.
 
 ## What Fidelis does not do
@@ -100,4 +100,4 @@ npm run test:live:claude    # real Claude Code, spends Haiku usage
 npm run test:live:opencode  # real OpenCode server, free models, fixture text only
 ```
 
-[PLAN.md](PLAN.md) records the design decisions. [EVIDENCE.md](EVIDENCE.md) records tested versions and observed host behavior. [RELEASING.md](RELEASING.md) covers npm publication, which needs explicit maintainer approval.
+[PLAN.md](PLAN.md) records the design decisions. [EVIDENCE.md](EVIDENCE.md) records tested versions and observed host behavior. [RELEASING.md](RELEASING.md) covers releases: merging the release pull request that Release Please keeps open publishes to npm.

@@ -1,14 +1,26 @@
 # Releasing
 
-Publishing a GitHub release publishes to npm. That release is the maintainer's explicit approval: merging, or pushing a tag on its own, publishes nothing. `publish.yml` also runs by manual dispatch from `main`. Both paths go through the `npm-publish` environment.
+Releases are automated with [Release Please](https://github.com/googleapis/release-please). Merging its release pull request is the maintainer's explicit approval: nothing else publishes.
 
-## Release a version
+## How a release happens
 
-1. Set the same new version in the three workspaces, in the adapters' `fidelis` dependency, in the root `package.json` and in `packages/claude-code/.claude-plugin/plugin.json`, then run `npm install` to update the lockfile. Add the version to `CHANGELOG.md`.
-2. Merge that change into `main`.
-3. Publish a GitHub release whose tag is `v` plus that version, such as `v0.2.0`, targeting `main`. Use the web interface or `gh release create` with your own credentials: a release created with a workflow's `GITHUB_TOKEN` does not start other workflows.
+1. Commit to `main` with [Conventional Commits](https://www.conventionalcommits.org/). Before 1.0, `fix:` bumps the patch version, and `feat:` or a breaking change (`feat!:`, or a `BREAKING CHANGE:` footer) bumps the minor version. `chore:`, `ci:`, `docs:` and `test:` release nothing on their own.
+2. On every push to `main`, `publish.yml` runs Release Please. It keeps one pull request open, titled like `chore(main): release 0.2.0`, which sets the next version everywhere, adds the section to `CHANGELOG.md` and updates `.release-please-manifest.json`.
+3. Merge that pull request. Release Please then tags `v` plus the version and creates the GitHub release, and the same workflow checks that every package carries that version, runs the tests and publishes each package not on npm yet.
 
-The workflow then refuses a release whose commit is not on `main` or whose tag does not match every package version. It runs the tests and publishes each package whose version is not on npm yet. A pre-release publishes nothing. If the `npm-publish` environment limits which branches may deploy, allow tags matching `v*` too, or GitHub rejects the release run.
+`release-please-config.json` lists every file that holds the version: the three workspaces, the adapters' `fidelis` dependency, `packages/claude-code/.claude-plugin/plugin.json` and the lockfile. A new place that holds the version must be added there.
+
+To force a version, add a `Release-As: 1.0.0` footer to a commit on `main`.
+
+## One-time repository settings
+
+- **Settings, Actions, General, Workflow permissions:** enable "Allow GitHub Actions to create and approve pull requests". Without it, Release Please cannot open its pull request.
+- **CI on the release pull request:** a pull request opened with the workflow's `GITHUB_TOKEN` starts no workflows, so `ci.yml` does not run on it. The publish job runs the tests again before publishing. To get CI on the pull request too, store a fine-grained personal access token with contents and pull request write access as a secret and pass it to the action as `token`.
+- **`npm-publish` environment:** releases now publish from a push to `main`, so a branch restriction that allows `main` is enough.
+
+## Manual publish
+
+`publish.yml` can also be dispatched by hand from `main`. It then publishes every listed workspace whose version is not on npm yet, without Release Please. Use it to retry a failed publish.
 
 ## Packages
 
@@ -54,9 +66,9 @@ On npmjs.com, open each package, then Settings, then Trusted publishing, and add
 | Workflow filename | `publish.yml` (filename only) |
 | Environment | `npm-publish` |
 
-Allow direct `npm publish` if npm offers that choice. GitHub creates the `npm-publish` environment on first use. Required reviewers are optional: a release is already an explicit approval. With reviewers set, each release also waits for one of them to approve the run.
+Allow direct `npm publish` if npm offers that choice. GitHub creates the `npm-publish` environment on first use. Required reviewers are optional: merging the release pull request is already an explicit approval. With reviewers set, each release also waits for one of them to approve the run.
 
-Run one real publish through the workflow, by release or manual dispatch, within two days of registering each publisher; npm's registration expires otherwise. If it expires, delete and recreate it. `npm whoami` does not test trusted publishing.
+Run one real publish through the workflow, by release pull request or manual dispatch, within two days of registering each publisher; npm's registration expires otherwise. If it expires, delete and recreate it. `npm whoami` does not test trusted publishing.
 
 ## After OIDC works
 
