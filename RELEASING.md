@@ -1,6 +1,14 @@
 # Releasing
 
-Publishing needs the maintainer's explicit approval. Merging or tagging does not publish anything: `publish.yml` runs only by manual dispatch from `main`, through the `npm-publish` environment.
+Publishing a GitHub release publishes to npm. That release is the maintainer's explicit approval: merging, or pushing a tag on its own, publishes nothing. `publish.yml` also runs by manual dispatch from `main`. Both paths go through the `npm-publish` environment.
+
+## Release a version
+
+1. Set the same new version in the three workspaces, in the adapters' `fidelis` dependency, in the root `package.json` and in `packages/claude-code/.claude-plugin/plugin.json`, then run `npm install` to update the lockfile. Add the version to `CHANGELOG.md`.
+2. Merge that change into `main`.
+3. Publish a GitHub release whose tag is `v` plus that version, such as `v0.2.0`, targeting `main`. Use the web interface or `gh release create` with your own credentials: a release created with a workflow's `GITHUB_TOKEN` does not start other workflows.
+
+The workflow then refuses a release whose commit is not on `main` or whose tag does not match every package version. It runs the tests and publishes each package whose version is not on npm yet. A pre-release publishes nothing. If the `npm-publish` environment limits which branches may deploy, allow tags matching `v*` too, or GitHub rejects the release run.
 
 ## Packages
 
@@ -46,9 +54,9 @@ On npmjs.com, open each package, then Settings, then Trusted publishing, and add
 | Workflow filename | `publish.yml` (filename only) |
 | Environment | `npm-publish` |
 
-Allow direct `npm publish` if npm offers that choice. GitHub creates the `npm-publish` environment on first use. Required reviewers are optional: the workflow already runs only by manual dispatch from `main`.
+Allow direct `npm publish` if npm offers that choice. GitHub creates the `npm-publish` environment on first use. Required reviewers are optional: a release is already an explicit approval. With reviewers set, each release also waits for one of them to approve the run.
 
-Run one real publish through the workflow within two days of registering each publisher; npm's registration expires otherwise. If it expires, delete and recreate it. `npm whoami` does not test trusted publishing.
+Run one real publish through the workflow, by release or manual dispatch, within two days of registering each publisher; npm's registration expires otherwise. If it expires, delete and recreate it. `npm whoami` does not test trusted publishing.
 
 ## After OIDC works
 
