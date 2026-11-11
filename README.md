@@ -6,7 +6,7 @@ Fidelis is an open-source, harness-agnostic plugin for AI coding agents. When th
 
 The focus is **behavioral compliance**: skipping a required step, editing outside the requested scope, committing at the wrong point, or ignoring a stop condition.
 
-> **Status:** this version replaces the external audit pipeline of 0.1.x with the self-review below. It is not published to npm yet. [EVIDENCE.md](EVIDENCE.md) lists what was tested and what was not.
+> **Status:** 0.2.0 replaces the external audit pipeline of 0.1.x with the self-review below. It is not published to npm yet. [EVIDENCE.md](EVIDENCE.md) lists what was tested and what was not.
 
 ## The review
 

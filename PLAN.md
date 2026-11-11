@@ -1,6 +1,6 @@
 # Fidelis: design
 
-**Status:** implemented on top of 0.1.5. **Repository:** `insign/fidelis`. **License:** MIT.
+**Status:** implemented in 0.2.0. **Repository:** `insign/fidelis`. **License:** MIT.
 
 ## Problem
 
