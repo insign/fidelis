@@ -1,6 +1,6 @@
 {
   "name": "fidelis-claude-code",
-  "version": "0.1.5",
+  "version": "0.2.0",
   "description": "Fidelis Claude Code hook: at every Stop, asks the agent to review its own turn against the rules it loaded.",
   "type": "module",
   "license": "MIT",
@@ -25,6 +25,6 @@
     "node": ">=22.18"
   },
   "dependencies": {
-    "fidelis": "0.1.5"
+    "fidelis": "0.2.0"
   }
 }

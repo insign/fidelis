@@ -1,6 +1,8 @@
-# Manual, approval-gated release. See RELEASING.md before the first run.
+# Publishes to npm when a GitHub release is published, or by manual dispatch from main. See RELEASING.md.
 name: Publish
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       packages:
@@ -11,7 +13,8 @@ permissions:
   contents: read
 jobs:
   publish:
-    if: github.ref == 'refs/heads/main'
+    # A pre-release publishes nothing: npm would make it the default install.
+    if: (github.event_name == 'release' && !github.event.release.prerelease) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
@@ -19,17 +22,33 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
           package-manager-cache: false
+      - name: Check that the release is on main and matches every package version
+        if: github.event_name == 'release'
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          git merge-base --is-ancestor HEAD origin/main || { echo "Release $TAG is not on main"; exit 1; }
+          node -e '
+            for (const dir of ["core", "claude-code", "opencode"]) {
+              const { name, version } = require(`./packages/${dir}/package.json`)
+              if (process.env.TAG !== `v${version}`) {
+                console.error(`${name} is ${version}, but the release is ${process.env.TAG}`)
+                process.exit(1)
+              }
+            }'
       - run: node --version && npm --version
       - run: npm ci
       - run: npm test
       - name: Publish approved workspaces
         env:
-          PACKAGES: ${{ inputs.packages }}
+          PACKAGES: ${{ inputs.packages || 'fidelis fidelis-claude-code fidelis-opencode' }}
         run: |
           for name in $PACKAGES; do
             case "$name" in

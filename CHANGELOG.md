@@ -1,11 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-11-11)
 
 - **Breaking**: The compiler, judge, state machine, evidence ledger and OpenCode TUI are replaced by a self-review. At the end of each turn, the same agent is asked once, in the same session, to review the turn against the instructions it loaded: fix what it may, weigh whether each rule was needed, list what needs the user and wait, and reply in the user's language.
 - **Claude Code**: Only a `Stop` hook remains. `install` and `uninstall` also remove the `SessionStart` hook of earlier versions. The `status` command is gone.
 - **OpenCode**: The plugin has no options, and the footer and `/fidelis` panel are gone.
 - **Configuration**: All options are gone and earlier ones are ignored. State left by earlier versions in the cache directory can be deleted.
+- **Release**: Publishing a GitHub release tagged `v` plus the package version, on `main`, publishes to npm. Manual dispatch still works.
 
 ## 0.1.4 (2026-11-06)
 
