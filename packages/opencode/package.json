@@ -1,6 +1,6 @@
 {
   "name": "fidelis-opencode",
-  "version": "0.2.0",
+  "version": "0.1.5",
   "description": "Fidelis OpenCode v2 plugin: after every turn, asks the agent to review its own turn against the rules it loaded.",
   "type": "module",
   "license": "MIT",
@@ -21,6 +21,6 @@
   },
   "dependencies": {
     "@opencode/plugin": ">=2.2.5",
-    "fidelis": "0.2.0"
+    "fidelis": "0.1.5"
   }
 }

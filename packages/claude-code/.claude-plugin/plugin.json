@@ -1,6 +1,6 @@
 {
   "name": "fidelis",
-  "version": "0.2.0",
+  "version": "0.1.5",
   "description": "At every Stop, asks Claude to review its own turn against the instructions it loaded.",
   "license": "MIT",
   "repository": "https://github.com/insign/fidelis"
