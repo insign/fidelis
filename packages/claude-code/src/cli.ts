@@ -3,92 +3,22 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFil
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { Auditor, jevNative, resolveConfig, Store, textDecisions, type Outcome } from "fidelis"
-import { buildEvidence, claudeGenerate, discoverInstructions, parseTranscript, readJsonl } from "./adapter.ts"
+import { REVIEW_PROMPT } from "fidelis"
 
-const HOOK_EVENTS = { SessionStart: 10, Stop: 900 }
-
-function loadOptions(cwd: string, env = process.env) {
-  const read = (path: string) => {
-    try {
-      return JSON.parse(readFileSync(path, "utf8"))
-    } catch {
-      return {}
-    }
-  }
-  const user = read(join(env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "fidelis.json"))
-  // The audited agent can write project files, so it must not be able to switch off its own auditor.
-  const project = user.trustProjectConfig === true ? read(join(cwd, ".claude", "fidelis.json")) : {}
-  return { ...user, ...project, ...(env.FIDELIS_CONFIG ? read(env.FIDELIS_CONFIG) : {}) }
+/**
+ * One review per turn. `stop_hook_active` is true when this stop ends a continuation that a Stop hook started, which
+ * includes the review itself, so the review never reviews itself.
+ */
+export function stopOutput(input: any): object | null {
+  if (input?.hook_event_name !== "Stop" || input.stop_hook_active === true || input.agent_id) return null
+  // Work still running in the background means the turn has not really finished.
+  if ((input.background_tasks ?? []).some((task: any) => task?.status === "running" || task?.status === "pending")) return null
+  return { hookSpecificOutput: { hookEventName: "Stop", additionalContext: REVIEW_PROMPT } }
 }
 
-export function makeAuditor(cwd: string, env = process.env) {
-  const options = loadOptions(cwd, env)
-  const config = resolveConfig("claude-code", options)
-  const store = new Store("claude-code")
-  const compiler = claudeGenerate(config.compilerModel, config.compilerEffort, config)
-  // A Jev judge is used only when explicitly named and given a key. Otherwise Haiku, labeled self-reported.
-  const key = env.TYPESAFE_API_KEY ?? env.FIDELIS_JEV_API_KEY
-  const judge = config.judgeModel.startsWith("jev")
-    ? key
-      ? jevNative({ apiKey: key, model: config.judgeModel })
-      : null
-    : textDecisions(claudeGenerate(config.judgeModel, config.judgeEffort, config), config.judgeModel)
-  return { config, store, auditor: new Auditor({ store, host: "claude-code", config, options, compiler, judge }) }
-}
-
-/** The transcript writer lags the hook. Give it a moment before reading the final records. */
-function settle(path: string, finalReply: string) {
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const tail = readJsonl(path).filter((record) => record.type === "assistant").at(-1)
-    const text = (tail?.message?.content ?? []).map((part: any) => part?.text ?? "").join("")
-    if (text.trim() === finalReply.trim()) return
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 125)
-  }
-}
-
-export async function handleStop(input: any, env = process.env): Promise<object | null> {
-  if (input.agent_id) return null
-  if ((input.background_tasks ?? []).some((task: any) => task.status === "running" || task.status === "pending")) return null
-  const { auditor, config } = makeAuditor(input.cwd, env)
-  if (!config.enabled) return null
-  const finalReply = input.last_assistant_message ?? ""
-  settle(input.transcript_path, finalReply)
-  const { parsed, evidence } = buildEvidence(input.transcript_path, finalReply)
-  // Only the newest of each origin counts: replaying history would outlive the bounded ID cache, and a later SDK prompt must not hide a human reply.
-  const prompts = parsed.messages.filter((message) => message.origin === "human" || message.origin === "sdk")
-  const human = prompts.filter((message) => message.origin === "human").at(-1)
-  if (human) auditor.userMessage(input.session_id, human)
-  if (prompts.at(-1) && prompts.at(-1) !== human) auditor.userMessage(input.session_id, prompts.at(-1)!)
-  const sources = parsed.sources.length ? parsed.sources : discoverInstructions(input.cwd, parsed.version, env)
-  const outcome = await auditor.complete(input.session_id, { sources, evidence, boundaryKey: `${input.prompt_id ?? ""}:${input.stop_hook_active === true}` })
-  return outputFor(outcome)
-}
-
-export function outputFor(outcome: Outcome): object | null {
-  if (outcome.action === "correct") return { hookSpecificOutput: { hookEventName: "Stop", additionalContext: outcome.text } }
-  if (outcome.action === "wait") return outcome.notice ? { systemMessage: outcome.notice } : null
-  return outcome.notice ? { systemMessage: outcome.notice } : null
-}
-
-async function hook() {
-  // A nested compiler or judge process must never audit itself.
-  if (process.env.FIDELIS_NESTED) return
-  const input = JSON.parse(readFileSync(0, "utf8"))
-  if (input.hook_event_name === "SessionStart") {
-    const { store, config } = makeAuditor(input.cwd)
-    store.cleanup(config.retentionDays)
-    return
-  }
-  if (input.hook_event_name !== "Stop") return
-  const output = await handleStop(input)
-  if (output) process.stdout.write(JSON.stringify(output))
-}
-
-function settingsPath(project: boolean) {
-  return project ? join(process.cwd(), ".claude", "settings.json") : join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json")
-}
-
+/** Earlier versions also installed a SessionStart hook. Install and uninstall clean it up. */
+const HOOK_EVENTS = ["SessionStart", "Stop"]
+const STOP_TIMEOUT_SECONDS = 10
 const OWN_HOOK = /[\\/](?:fidelis-claude-code|claude-code)[\\/]dist[\\/]cli\.js" hook$/
 
 /** Removes only the Fidelis hook, never a neighbor in the same group. */
@@ -100,40 +30,40 @@ export function withoutOwnHook(groups: any[]): any[] {
   })
 }
 
+export function withHook(settings: any, command: string, remove: boolean): any {
+  const hooks = { ...(settings.hooks ?? {}) }
+  for (const event of HOOK_EVENTS) {
+    const kept = withoutOwnHook(hooks[event] ?? [])
+    hooks[event] = !remove && event === "Stop" ? [...kept, { hooks: [{ type: "command", command, timeout: STOP_TIMEOUT_SECONDS }] }] : kept
+    if (hooks[event].length === 0) delete hooks[event]
+  }
+  return { ...settings, hooks }
+}
+
+function settingsPath(project: boolean) {
+  return project ? join(process.cwd(), ".claude", "settings.json") : join(process.env.CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude"), "settings.json")
+}
+
 function install(remove: boolean, project: boolean) {
   const path = settingsPath(project)
   const settings = existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : {}
   const command = `node "${realpathSync(fileURLToPath(import.meta.url))}" hook`
-  settings.hooks ??= {}
-  for (const [event, timeout] of Object.entries(HOOK_EVENTS)) {
-    const kept = withoutOwnHook(settings.hooks[event] ?? [])
-    settings.hooks[event] = remove ? kept : [...kept, { hooks: [{ type: "command", command, timeout }] }]
-    if (settings.hooks[event].length === 0) delete settings.hooks[event]
-  }
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(`${path}.tmp`, JSON.stringify(settings, null, 2) + "\n")
+  writeFileSync(`${path}.tmp`, JSON.stringify(withHook(settings, command, remove), null, 2) + "\n")
   renameSync(`${path}.tmp`, path)
-  console.log(`${remove ? "Removed Fidelis hooks from" : "Installed Fidelis hooks in"} ${path}`)
-}
-
-function status(sessionID: string | undefined) {
-  if (!sessionID) return console.error("usage: fidelis-claude-code status <session-id>")
-  const { auditor } = makeAuditor(process.cwd())
-  console.log(JSON.stringify(auditor.status(sessionID), null, 2))
+  console.log(`${remove ? "Removed the Fidelis hook from" : "Installed the Fidelis hook in"} ${path}`)
 }
 
 if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const [command, argument] = process.argv.slice(2)
+  const [command] = process.argv.slice(2)
   const project = process.argv.includes("--project")
   if (command === "hook") {
-    await hook().catch((error) => {
-      // A broken auditor must never wedge the session.
-      process.stdout.write(JSON.stringify({ systemMessage: `Fidelis audit incomplete: ${String(error?.message ?? error).slice(0, 300)}` }))
-    })
+    // A malformed input must never wedge the session: no output lets the turn end.
+    try {
+      const output = stopOutput(JSON.parse(readFileSync(0, "utf8")))
+      if (output) process.stdout.write(JSON.stringify(output))
+    } catch {}
   } else if (command === "install") install(false, project)
   else if (command === "uninstall") install(true, project)
-  else if (command === "status") status(argument)
-  else console.error("usage: fidelis-claude-code <install|uninstall|status <session-id>|hook> [--project]")
+  else console.error("usage: fidelis-claude-code <install|uninstall|hook> [--project]")
 }
-
-export { parseTranscript }

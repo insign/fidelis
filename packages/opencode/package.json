@@ -1,7 +1,7 @@
 {
   "name": "fidelis-opencode",
   "version": "0.1.5",
-  "description": "Fidelis OpenCode v2 plugin: audits finished turns against loaded AGENTS.md rules, with TUI status and bounded corrections.",
+  "description": "Fidelis OpenCode v2 plugin: after every turn, asks the agent to review its own turn against the rules it loaded.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -10,9 +10,7 @@
     "directory": "packages/opencode"
   },
   "exports": {
-    ".": "./src/index.ts",
-    "./tui": "./src/tui.ts",
-    "./rpc": "./src/rpc.ts"
+    ".": "./src/index.ts"
   },
   "files": [
     "src",
@@ -24,21 +22,5 @@
   "dependencies": {
     "@opencode/plugin": ">=2.2.5",
     "fidelis": "0.1.5"
-  },
-  "peerDependencies": {
-    "@opentui/core": ">=0.8.0",
-    "@opentui/solid": ">=0.8.0",
-    "solid-js": ">=1.9.0"
-  },
-  "peerDependenciesMeta": {
-    "@opentui/core": {
-      "optional": true
-    },
-    "@opentui/solid": {
-      "optional": true
-    },
-    "solid-js": {
-      "optional": true
-    }
   }
 }

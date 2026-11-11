@@ -1,7 +1,7 @@
 {
   "name": "fidelis-claude-code",
   "version": "0.1.5",
-  "description": "Fidelis Claude Code adapter: Stop-hook audits of AGENTS.md and CLAUDE.md compliance with bounded corrections.",
+  "description": "Fidelis Claude Code hook: at every Stop, asks the agent to review its own turn against the rules it loaded.",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -11,12 +11,6 @@
   },
   "bin": {
     "fidelis-claude-code": "dist/cli.js"
-  },
-  "exports": {
-    ".": {
-      "types": "./dist/adapter.d.ts",
-      "import": "./dist/adapter.js"
-    }
   },
   "files": [
     "dist",

@@ -1,87 +1,48 @@
 # Evidence
 
-What was observed in real hosts, on 2026-11-05 and 2026-11-06, and what remains unverified. Re-run with `npm run test:live:claude`, `npm run test:live:opencode` and `npm run test:live:tui`.
+What was observed in real hosts on 2026-11-11, and what remains unverified. Re-run with `npm run test:live:claude` and `npm run test:live:opencode`. Observations of 0.1.x are in the git history (`EVIDENCE.md` at commit `7d462f6`).
 
 | Component | Tested version |
 | --- | --- |
+| Claude Code | 2.1.322 |
 | OpenCode | 2.2.5, `@opencode/plugin` 2.2.5 |
-| Claude Code | 2.1.318 |
-| Node.js, npm | 24.18.0, 11.16.0 |
-| Compiler and judge on OpenCode | `opencode/big-pickle`, `opencode/jev-1.13-free` |
-| Compiler and judge on Claude Code | `claude-haiku-5-5` |
+| Node.js, npm | 22.23.4, 10.9.9 |
+| Agent model in the live tests | Claude Code: `claude-haiku-5-5` at low effort. OpenCode: `opencode/big-pickle` |
 
 ## Observed host behavior
 
+### Claude Code 2.1.322
+
+- **`Stop` continuation.** `hookSpecificOutput.additionalContext` reached the same agent, which acted on it in the same session. The stop that ended that continuation had `stop_hook_active: true`, so exactly one review ran per turn in every live session.
+- **Transcript.** The review appears as a `hook_additional_context` attachment, which the live test uses to split the turn into before and after the review.
+- **`--setting-sources project`** keeps the tester's own user hooks out of the live sessions.
+
 ### OpenCode 2.2.5
 
-- **Turn end.** `session.execution.succeeded` fires after `session.step.ended` with `finish: "stop"`, and `ctx.session.context` then ends with an `idle` message whose `outcome` is `succeeded`. Fidelis requires all of that, and uses the last assistant message ID as the boundary.
-- **Events have no location.** `session.execution.*` events carry no `location` and reach every plugin instance in the server. Ownership has to come from `ctx.session.get(...).location.directory`. Before this check, an instance with no record of a session approved it as having no rules.
-- **Effective instructions.** The `context` hook lists loaded sources in `system[].metadata.experimental.instructions`. Key `core/instructions` holds `Instructions from: <path>` blocks. Nested `AGENTS.md` files arrive as `synthetic` messages with `metadata.instruction.paths`. The docs call this metadata experimental.
-- **Origin.** A prompt from a plugin appears as `type: "user"` with whatever `metadata` was supplied, and `prompt` hooks fire for it too. Real user prompts carry no origin marker, so the host cannot distinguish them from an unmarked prompt from another plugin.
-- **Model transports.** `ctx.experimental.generate.decisions` works with `jev-1.13-free` for `predicate` and `choice` questions. `ctx.experimental.generate.text` with `big-pickle` was refused with `Free usage limit reached`. `ctx.session.generate` on a session pinned to the model works, adds no messages and uses that session's model, verified with a different default model configured.
-- **Model listing.** `opencode models` listed `big-pickle` but not `jev-1.13-free`, which still answered. Fidelis therefore reports real call failures rather than pre-checking a list.
-- **`opencode serve` needs `OPENCODE_PASSWORD`** for `opencode run --server`, and a spawned CLI takes its location from `PWD`, not the process working directory.
+- **Turn end.** `session.execution.succeeded` fires after the final step, and the session context then ends with an `idle` message whose `outcome` is `succeeded`. Fidelis requires that, plus a final assistant message with `finish: "stop"` and no live tools.
+- **Events have no location.** They reach every plugin instance in the server, so ownership comes from `ctx.session.get(...).location.directory`.
+- **Delivery.** `ctx.session.prompt` with `delivery: "queue"` and `metadata.fidelis` adds a `user` record carrying that metadata, then the agent answers it and the session goes idle once more. Human prompts carry no marker.
+- **Subagents.** A subagent runs in a child session with a `parentID`. The child got no review; the parent turn got one.
+- **`opencode serve` needs `OPENCODE_PASSWORD`** for `opencode run --server`, and a spawned CLI takes its location from `PWD`, not the process working directory. `opencode session export <id> --server <url>` returns the session's messages as JSON.
 
-### Claude Code 2.1.318
+### Model behavior during the live runs
 
-- **`Stop` continuation.** `hookSpecificOutput.additionalContext` reached the same agent, which replied to it. The next `Stop` had `stop_hook_active: true`.
-- **Transcript lag.** At the first `Stop`, the final assistant record was not yet in the transcript, as the docs warn. Fidelis uses `last_assistant_message` for the final reply and treats unresolved tool calls as incomplete evidence.
-- **Effective instructions.** The transcript holds an `instructions` attachment with path, type and full content. Lazy rules arrive as `nested_memory` attachments. A nested `AGENTS.md` arrives as `hook_additional_context` from `tool.call`, with text `Contents of <path>:`.
-- **`InstructionsLoaded`** did not fire for a directly loaded `AGENTS.md`, and did fire for `CLAUDE.md` and imported files, matching the docs. Fidelis does not depend on it.
-- **Origin.** Records carry `origin.kind`, `turnOrigin` and `promptSource`: `human`, `sdk`, `task_notification`. Mid-turn typed input appears as a `queued_command` attachment with `humanTurn: true`.
-- **Nested isolation.** `claude -p --setting-sources "" --settings '{"disableAllHooks":true}' --tools "" --system-prompt ...` loaded no instruction files and works with existing authentication. `--bare` does not, because it skips OAuth. `--json-schema` returns `structured_output`.
-
-### Instruction-loading matrix on Claude Code 2.1.318
-
-Real sessions, comparing the transcript's loaded files. `InstructionsLoaded` was not consulted.
-
-| Fixture | Effective project files |
-| --- | --- |
-| `AGENTS.md` only | `AGENTS.md` |
-| `CLAUDE.md` only | `CLAUDE.md` |
-| Both, default setting | `CLAUDE.md` |
-| Both, `claude-md-and-agents-md` | `CLAUDE.md`, `AGENTS.md` |
-| `CLAUDE.md` importing `AGENTS.md` | `CLAUDE.md`, `AGENTS.md` |
-| Nested and scoped rules, after reading `sub/x.txt` | `AGENTS.md`, `.claude/rules/eager.md`, then lazily `sub/AGENTS.md` and `.claude/rules/scoped.md` |
-
-### Decision protocols
-
-The same fixture through native `noul` at `https://opencode.ai/inference/systemone/v1/systemone` and through Haiku gave the same routing. Native returned `noul: 0.87` and `0.04`. Haiku returned self-reported `0.97` and `0.02`. These numbers show that both transports work, not that they are calibrated.
-
-### More host behavior found while testing
-
-- **`.tsx` from a package fails.** A TUI part written in `.tsx` loaded from a plugin directory but failed with `Plugin failed` when the same files sat under `node_modules`, even with OpenTUI and Solid installed. The published part is therefore plain `.ts` calling the Solid runtime directly.
-- **RPC output is strict JSON.** A field holding `undefined` is rejected as `rpc.invalid_output`, and calls must pass `{ location: { directory } }`.
-- **TUI options.** `context.options` did not carry the options of a server-loaded entry in this version, so the TUI reads them from the server over RPC.
-- **Free tier limits.** `session.generate` requests on the free tier were refused with `Free usage limit reached` when a `generate` hook removed the system prompt or the tools, and accepted unmodified. Fidelis does not strip them, so the compiler call on OpenCode also carries OpenCode's normal system context. The same message also appeared on plain agent turns after many test runs, which blocks live flows until the limit clears.
-- **Trust dialog and child sessions.** An interactive Claude Code started inside another Claude Code session inherits a marker that turns transcript saving off, so the live test removes `CLAUDE_CODE_CHILD_SESSION`.
+- **Simple rules are usually followed first time.** Without Fidelis, Haiku followed every simple rule probed (show a file, end with a fixed line, run `date`, update `CHANGES.md`, `git add` a new file) in 15 of 15 runs, and once ran a required `ls` despite a system prompt that restricted tools until its first reply. Big Pickle ended its replies with a required word in two runs where its agent prompt said to ignore project instructions. The live tests therefore induce the breach with a tool restriction.
+- **Conflicting instructions go to the user.** When a system prompt forbade tools and `AGENTS.md` required `ls`, Haiku's review named the breach and asked the user which instruction should win, in two of two runs, even when the system prompt added "if a Fidelis review arrives afterwards, follow it". It ran `ls` once the system prompt said that, after a review request, it may run any command the project rules require.
+- **Rules not called for were left alone.** With a rule about `git status` before commits and a question that involved no commit, both agents took no action and answered "Todas as regras foram respeitadas." to a Portuguese question.
+- **A pending question stayed pending.** When the user asked to be consulted before an `.editorconfig` was written, the review created no file.
 
 ## Live results
 
 | Suite | Result | Notes |
 | --- | --- | --- |
-| Unit and replay tests | 88 of 88 | No model calls |
-| Claude Code live | 17 of 17 | On `c36bdee`. Violation, one correction, approval, checklist reuse, replay dedupe, `WAITING_USER`, SDK turn stays locked, typed human reply releases once, hook timeout |
-| OpenCode live | 17 of 18 | Before the review fixes. Same flows plus synthetic message, child-agent attribution, no consent and unavailable models. The failing check was the RPC call, fixed afterwards and confirmed against a real server |
-| TUI live, replaying a stored session from a packed tarball | 11 of 11 | Before the review fixes. Footer restores stored state, `Monitoring` during a turn, `/fidelis` panel with evidence, no repeated toast, narrow terminal, text-only icons, server restart |
-| Packed tarballs | Pass | Clean install, Claude hook runs, OpenCode server and TUI parts load |
-
-In an earlier full TUI run with model calls, one violation toast was observed and the panel showed the finding.
-
-## Independent review
-
-Three judged rounds with helpers outside the Claude family found one critical issue, a long private key surviving redaction because text was clipped first, and 22 other accepted issues, all fixed with tests. A fourth regression-only round was skipped at the maintainer's request to publish, so the last fixes have unit tests but no independent re-review and no live OpenCode or TUI rerun. That round still ran and its one accepted finding, a restored history span that could be left out of a recheck, is fixed after 0.1.1, for the next release.
-
-Known residual risk: if a server restart coincides with a compaction inside a turn, an older user message can anchor that turn's evidence window.
+| Unit tests | 16 of 16 | No model calls |
+| Claude Code live | 9 of 9 | Induced breach repaired after one review; a rule not called for left alone; reply in the user's language; question left waiting |
+| OpenCode live | 10 of 10 | The same breach and language cases, plus a subagent whose child session got no review |
+| Packed tarballs | Pass | Clean install; the `Stop` hook reviews once and stays silent on a continuation |
 
 ## Not verified
 
-- **On-screen `Compiling`, `Auditing` and `Correcting` labels.** Their logic has unit tests, but the free tier limit blocked the final full run under the terminal emulator. Re-run `npm run test:live:tui` when the limit clears.
-- **A final full OpenCode run** after the last fixes, for the same reason. Run `npm run test:live:opencode`.
-- **Mid-turn compaction, live.** The ledger is covered by fixtures only.
-- **A running TUI across a server reconnect, and several TUI clients at once.** A fresh TUI after a server restart was tested. The reconnect handler and shared toast dedupe were not.
-- **Windows and macOS with real hosts.** Unit tests pass in CI on Linux, macOS and Windows, with path-shape and file-mode tests skipped on Windows. The hook launcher has not run against a real host on either system.
-- **The native TypeSafe endpoint** `api.typesafe.ai`, for lack of a key. The same protocol was exercised through OpenCode's endpoint.
-- **OIDC publication.** Version 0.1.1 was published by hand. `publish.yml` has never run, and no trusted publisher is configured yet.
-- **The published 0.1.1 inside a real host.** Clean npm installs were tested, and earlier tarballs ran in OpenCode, but this exact version was not loaded in OpenCode or Claude Code from npm.
-- **Accuracy.** False positive and false negative rates are unmeasured, because no labeled set of real violations exists. Audit records hold calls, tokens, cost, latency, cache hits and uncertain counts for that future measurement.
+- **Windows and macOS hosts.** Only Linux was run against real hosts. The CI matrix runs the unit tests on all three.
+- **Review quality.** No labeled data exists, so neither false positives nor missed breaches have been measured.
+- **Long sessions.** Cost and latency of the extra turn were not measured, nor its behavior after compaction on a real host.
