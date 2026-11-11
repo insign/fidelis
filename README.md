@@ -1,73 +1,60 @@
 # Fidelis
 
-**Trust the agent. Verify the behavior.**
+**Before the agent stops, it checks its own turn against your rules.**
 
-Fidelis is an open-source, harness-agnostic AI agent auditor that verifies compliance with **AGENTS.md**, detects behavioral violations, and drives autonomous corrections. It also audits the effective companion instructions that each harness actually loads, including Claude Code's `CLAUDE.md` when applicable.
+Fidelis is an open-source, harness-agnostic plugin for AI coding agents. When the agent finishes a turn, Fidelis sends one message back to the **same agent, in the same session**, asking it to review what it just did against the global and project instructions it loaded (`AGENTS.md`, `CLAUDE.md` and their scoped rules). The agent fixes what it safely can, asks the user about the rest, or says in one sentence that all rules were respected.
 
-The focus is **behavioral compliance**, not just code quality, linting, tool permissions, or security policy. A change can compile and pass tests yet still violate a repository's workflow: skip a required review, edit outside the requested scope, combine separately mandated steps, fail to commit at a required checkpoint, or ignore a user-imposed stop condition.
+The focus is **behavioral compliance**: skipping a required step, editing outside the requested scope, committing at the wrong point, or ignoring a stop condition.
 
-> **Status: 0.1.0, not yet published to npm.** Both host adapters pass live checks against the host versions listed in [EVIDENCE.md](EVIDENCE.md), which also lists what is not verified. No accuracy figures are claimed: false positive and false negative rates have not been measured on labeled data.
+> **Status:** this version replaces the external audit pipeline of 0.1.x with the self-review below. It is not published to npm yet. [EVIDENCE.md](EVIDENCE.md) lists what was tested and what was not.
 
-## The idea
+## The review
 
-1. **Discover effective instructions.** Read applicable global and project instructions, such as `AGENTS.md`, `CLAUDE.md`, and relevant scoped rules. Respect scope and precedence.
-2. **Compile once, reuse many times.** A lightweight model converts instructions into an evidence-based checklist. The default is **Big Pickle on OpenCode v2** and **Claude Haiku 5.5 at xhigh effort on Claude Code**. The result is cached by a hash of the effective instruction set and compiler configuration.
-3. **Observe without prejudging.** Collect the agent's execution history and relevant evidence while it works. **Do not accuse the agent merely because a future obligation has not yet been fulfilled.**
-4. **Audit after the agent finishes a turn.** A configurable decision model (for example, Jev where available) evaluates the checklist against the actual execution, including ordered actions, final reply, and relevant artifacts.
-5. **Correct only substantiated violations.** If the agent can safely repair a violation without exceeding its authorization, Fidelis sends specific, actionable feedback back to that agent and audits the correction again.
-6. **Know when to stop.** If the agent needs a genuine user decision, Fidelis records `WAITING_USER` and does not automatically push it to continue. Only a verified new user turn can release that wait.
+This is the whole mechanism. It is sent once per turn:
 
 ```text
-Effective instructions -> compiler -> cached checklist
-                                  |
-Agent works -> execution evidence + final turn
-                                  |
-                         decision-model audit
-                                  |
-               approved / repair / wait for user
-                            |
-                   repair -> re-audit
+[Fidelis: automated end-of-turn review, not a message from the user]
+Before ending, review the turn you just finished against every global and project instruction in your context. Look for violations, not confirmation: check each rule against your actual tool calls and outputs, not your intent. An obligation whose deadline has not arrived is not a violation.
+Weigh whether each rule is actually needed for what this turn did. Do not carry out a rule just because it is written: a rule this turn's work did not call for needs no action and is not a violation.
+- If nothing was violated, reply with one short sentence saying that all rules were respected, and nothing else.
+- Fix any violation you can repair without undoing requested work or going beyond what the user authorized.
+- For anything that needs the user's decision, name the rule, what you did, and what you need from them. Then stop and wait.
+Reply in the user's language.
 ```
 
-## Design principles
+## Why a self-review
 
-- **Audit the past, not an imagined future.** Pending is not violated. Temporal rules are checked against their actual deadlines and sequence of events.
-- **Evidence before accusation.** Each finding identifies the original rule, supporting event(s), and a concrete explanation. Missing evidence means `UNKNOWN`, not automatically `VIOLATED`.
-- **Independent memory.** Per-session state and evidence live outside the agent's context so compaction does not erase the audit trail.
-- **Cheap by default, quality where necessary.** Cached compilation, batch decisions, no LLM inference per tool call, bounded retries and context budgets.
-- **User authority wins.** Fidelis must not authorize destructive changes, permissions, expanded scope, or decisions reserved for the user.
-- **No infinite repairs.** Idempotent feedback, bounded correction cycles, and explicit waiting/terminal states.
-- **Harness-agnostic core.** Each host adapter translates lifecycle events, instruction discovery, transcripts, and feedback into a common contract.
+- **Full context.** The agent knows what it did and why. Nothing has to be extracted, summarized or squeezed into another model's context.
+- **Prompt cache.** The review continues the same conversation, so the provider's cache covers everything before it.
+- **No extra models.** No compiler, no judge, no API keys, and no rules or transcripts sent anywhere new.
+- **Rules come back into focus.** Re-reading the rules at the end of each turn helps the agent keep to them in the next one.
+- **Rules are weighed, not executed.** The agent acts only on rules the turn actually called for.
 
-## Integrations
+## Trade-offs
 
-| Host | Trigger | Feedback path |
+These are known and accepted in exchange for the simplicity:
+
+- **The agent judges itself.** The model that broke a rule may also miss it on review, especially when it misread the rule.
+- **Nobody checks the fix.** A repair is not reviewed again: the stop that ends it is never reviewed, so the review cannot loop.
+- **Each turn becomes two.** The review adds output, latency and a cache read of the whole context, on the model the session already uses.
+- **One more message per turn.** A clean turn ends with a short sentence such as "All rules were respected."
+- **Subagents are reviewed through the parent.** The parent sees what each subagent returned, not every step it took.
+- **No accuracy figures.** Detection rates have not been measured on labeled data.
+
+## How it works
+
+| Host | Trigger | Delivery |
 | --- | --- | --- |
-| **OpenCode v2** | `session.execution.succeeded`, verified against the final-turn record | A marked prompt to the same session through the plugin session API |
 | **Claude Code** | `Stop` hook | `hookSpecificOutput.additionalContext`, which continues the same agent |
+| **OpenCode v2** | `session.execution.succeeded` or an idle session, verified against the final-turn record | A prompt marked as Fidelis's, queued to the same session |
 
-Claude Code's hook can hold a stop for a correction. OpenCode's final reply is already visible before its audit finishes, so Fidelis reports a follow-up there and **never claims a reply was hidden or retracted**. Fidelis audits the **files each host actually loaded**, read from the host's own records.
+A turn is not reviewed when:
 
-Adapters for other harnesses (including Codex and Pi) are future work.
+- it is the review's own continuation (Claude Code: `stop_hook_active`; OpenCode: the turn was opened by the marked review prompt);
+- it belongs to a subagent;
+- background work it started is still running.
 
-## Install on OpenCode v2
-
-Add the plugin to `opencode.json`. It loads the server and TUI parts together:
-
-```jsonc
-{
-  "plugins": [
-    {
-      "package": "fidelis-opencode",
-      "options": { "allowFreeModelDataUse": true }
-    }
-  ]
-}
-```
-
-Without `allowFreeModelDataUse`, the audit reports `AUDIT_INCOMPLETE` instead of sending anything to the default compiler: **Big Pickle is free for a limited time and its submitted data may be used to improve the model**. Either consent as above, or name other models in `compilerModel` and `judgeModel`. Fidelis never switches to another model on its own.
-
-The footer uses compact labels such as `🛡️ idle`, `🔍 audit`, `🔧 fix`, `✅ OK`, and `⏸️ wait`. Type `/fidelis` in a session for the full state and audit history.
+On OpenCode, a turn is also skipped when compaction removed the message that opened it, because it can then no longer be told apart from the review's own turn.
 
 ## Install on Claude Code
 
@@ -75,79 +62,42 @@ The footer uses compact labels such as `🛡️ idle`, `🔍 audit`, `🔧 fix`,
 npm install -g fidelis-claude-code
 fidelis-claude-code install            # user settings
 fidelis-claude-code install --project  # or this project's .claude/settings.json
-fidelis-claude-code status <session-id>
 fidelis-claude-code uninstall
 ```
 
-Or load the package directory as a plugin with `claude --plugin-dir <path>`. Audits use your existing Claude authentication through a nested `claude -p`, isolated from hooks, tools, settings and project instructions. By default each finished turn adds Haiku calls to your usage. The `Stop` usually waits under a minute, and at most `auditDeadlineMs`.
+Or load the package directory as a plugin with `claude --plugin-dir <path>`.
+
+## Install on OpenCode v2
+
+Add the plugin to `opencode.json`:
+
+```jsonc
+{
+  "plugins": [{ "package": "fidelis-opencode" }]
+}
+```
 
 ## Configuration
 
-Pass options through the OpenCode plugin entry, or put them in `~/.claude/fidelis.json` on Claude Code. A `<project>/.claude/fidelis.json` is read only when the user file sets `trustProjectConfig: true`, because the audited agent can write project files.
+There is none. To turn Fidelis off, uninstall the hook or remove the plugin entry.
 
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `enabled` | `true` | Master switch |
-| `auditOnCompletion` | `true` | Audit finished turns |
-| `compilerModel` | OpenCode: `opencode/big-pickle`. Claude Code: `claude-haiku-5-5` | Builds the checklist |
-| `compilerEffort` | Claude Code: `xhigh` | Ignored on OpenCode, where the model variant applies |
-| `judgeModel` | OpenCode: `opencode/jev-1.13-free`. Claude Code: `claude-haiku-5-5` | Judges each turn |
-| `judgeEffort` | Claude Code: `xhigh` | Ignored on OpenCode |
-| `compilerPromptPath`, `judgePromptPath` | `null` | Replace a built-in prompt. Part of the matching cache key. A compiler prompt must keep the JSON shape, including `confidence` |
-| `maxCorrections` | `3` | Corrections per turn before `STOPPED` |
-| `minViolationConfidence` | `0.9` | Threshold to act on a violation |
-| `maxAuditTokens` | `12000` | Digest character budget is this value × 4; Jev 1.13 also reserves room for questions. Evidence that cannot fit yields `AUDIT_INCOMPLETE`, never silent truncation |
-| `maxAuditCostUSD` | `null` | Per-session spend limit, when the provider reports cost |
-| `cacheChecklist` | `true` | Reuse compiled checklists across sessions |
-| `storeRawTranscript` | `false` | Keep unclipped evidence in the local ledger |
-| `allowFreeModelDataUse` | `false` | Consent for default models that may train on submitted data |
-| `trustSdkPrompts` | `false` | Let SDK prompts release a wait. For fully headless use only |
-| `timeoutMs`, `retries` | `240000`, `1` | Per-call limits with backoff |
-| `auditDeadlineMs` | `600000` | Limit for a whole audit. Keep it below the host's hook timeout |
-| `retentionDays` | `30` | Local state retention |
-| `ui` | see below | OpenCode TUI only. Never affects auditing |
+## Upgrading from 0.1.x
 
-```json
-{ "ui": { "enabled": true, "footer": true, "notifications": "important", "auditPanel": true, "plainTextIcons": false } }
-```
-
-On Claude Code, a judge model whose name starts with `jev` uses the native TypeSafe API and requires `TYPESAFE_API_KEY`. Otherwise judging uses Haiku, whose numbers are labeled `self-reported` and are not Jev probabilities.
-
-State lives in `$FIDELIS_HOME`, or the OS cache directory (`~/.cache/fidelis`, `~/Library/Caches/fidelis`, `%LOCALAPPDATA%\fidelis`), with private permissions. Common secret shapes are redacted before anything is stored or sent.
-
-### Evidence and context budgeting
-
-The judge audits the current turn, with a limited share of earlier events as context—not the entire raw conversation. Thinking/reasoning parts are not collected. Each recorded event keeps its ID and one physical line; embedded line breaks are escaped, secrets are redacted before clipping, and omitted content is marked explicitly. The final reply is kept whole or the audit is incomplete. No LLM summary replaces the evidence.
-
-Jev 1.13 accepts about 32k tokens for state plus one question and 64k for state plus all questions in a request. Fidelis packs requests to operational estimates of **25,600 per question** and **51,200 per request**, counting the state in both. The estimate uses two characters per token plus question/option overhead; it is not a tokenizer guarantee. Other models retain their existing batching behavior. Provider-reported `inputTokens`, when available, is post-call telemetry, not permission to enlarge the budget.
-
-Citation descriptions are short locators. A question lists up to 250 recent eligible events, shrinking the window to fit the full estimated question cost; excluded events are declared and the judge may choose “none.” Invalid or unsupported citations stay `UNKNOWN`. Raw-span rechecks must fit the same context limits; unavailable evidence cannot prove absence. A recognized `max_tokens_exceeded` splits the batch without retrying the unchanged payload; an indivisible oversized question stays uncertain rather than passing silently. Long-context mode is not enabled.
-
-## Known limits
-
-- **Free tier on OpenCode:** when `Free usage limit reached` appears, the audit reports `AUDIT_INCOMPLETE`. The compiler call also carries OpenCode's normal system context, because the free tier refused requests without it. Configure your own models to avoid both.
-- **OpenCode origin:** the host does not mark human prompts. Fidelis treats unmarked `user` records as human and excludes its own marked prompts and `synthetic` records, so an unmarked prompt from another plugin would count as a human reply.
-- **Rule interpretation is model output.** Thresholds and evidence checks bound the damage, but a judge can still misread a rule. An overall accuracy figure would need labeled ground truth, which does not exist yet.
-- **Windows on Claude Code:** an npm-installed `claude.cmd` cannot be spawned directly. Set `FIDELIS_CLAUDE_BIN` to a `claude.exe`. Windows has not been tested against a real host.
-- **Claude Code `-p` prompts** are not proof of a human, so they never release `WAITING_USER` unless `trustSdkPrompts` is on.
-- Host records used for instruction discovery (`core/instructions` on OpenCode, the `instructions` transcript attachment on Claude Code) are not stable public contracts. On Claude Code a documented file-based fallback applies; on OpenCode a missing record yields no audit of that source.
+- The compiler, judge, state machine, OpenCode footer and `/fidelis` panel are gone. Their options (`judgeModel`, `maxCorrections`, `ui` and the rest) are ignored, and `~/.claude/fidelis.json` is no longer read.
+- Run `fidelis-claude-code install` again: it replaces the old `Stop` hook and removes the old `SessionStart` hook.
+- Earlier versions kept audit state in `$FIDELIS_HOME` or the OS cache directory (`~/.cache/fidelis`, `~/Library/Caches/fidelis`, `%LOCALAPPDATA%\fidelis`). Nothing reads it any more, so it can be deleted.
 
 ## What Fidelis does not do
 
-Fidelis is **not** a substitute for tests, static analysis, code review, or permission safeguards. It does not read hidden model reasoning. It uses observable messages, tool calls/results, diffs, commits, and other available evidence. It cannot guarantee perfect rule interpretation or reconstruct events that a harness never recorded.
+Fidelis is **not** a substitute for tests, static analysis, code review or permission safeguards. It does not verify the agent independently: it asks the agent to verify itself.
 
 ## Development
 
 ```bash
 npm ci
-npm test                    # unit and replay tests, no model calls
+npm test                    # unit tests, no model calls
 npm run test:live:claude    # real Claude Code, spends Haiku usage
 npm run test:live:opencode  # real OpenCode server, free models, fixture text only
-npm run test:live:tui       # real OpenCode TUI in a pseudo-terminal
 ```
 
-[PLAN.md](PLAN.md) is the design specification. [EVIDENCE.md](EVIDENCE.md) records tested versions and observed host behavior. [RELEASING.md](RELEASING.md) covers npm publication, which needs explicit maintainer approval.
-
-## License
-
-[MIT](LICENSE).
+[PLAN.md](PLAN.md) records the design decisions. [EVIDENCE.md](EVIDENCE.md) records tested versions and observed host behavior. [RELEASING.md](RELEASING.md) covers npm publication, which needs explicit maintainer approval.

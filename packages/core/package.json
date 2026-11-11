@@ -1,7 +1,7 @@
 {
   "name": "fidelis",
   "version": "0.1.5",
-  "description": "Harness-agnostic AI agent auditor core: checklist compiler, judge pipeline and session state machine.",
+  "description": "Fidelis core: the end-of-turn self-review prompt shared by the host adapters.",
   "type": "module",
   "license": "MIT",
   "repository": {
